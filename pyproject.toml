@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rgame"
+version = "0.1.0"
+description = "俯视角单屏肉鸽：自动攻击、三武器循环、三关模式 + 无尽模式（按 rgame 项目 Harness 总纲落地）"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "pygame>=2.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov"]
+
+[project.scripts]
+rgame = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["rgame*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

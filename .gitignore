@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Game specific
+*.log
+*.bak
+*.tmp
+_audit_profile.json
+_audit_profile_accounts.json
+_assets_preview.png
+_gen_*.json
+_gen_*.py
+_capture_*.py
+_make_preview.py
+_strip_bg.py
+_t_p1p3.json.bak
+_test_sfx.wav
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
