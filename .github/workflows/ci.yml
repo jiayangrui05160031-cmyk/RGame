@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev]" build
+
+      - name: Compile
+        run: python -m compileall -q rgame main.py
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Headless smoke test
+        run: python main.py --headless --seed 1234 --platform linux
+
+      - name: Build package
+        run: python -m build
+
+      - name: Verify built package
+        run: |
+          python -c "import glob, zipfile; wheel = glob.glob('dist/*.whl')[0]; names = set(zipfile.ZipFile(wheel).namelist()); required = {'rgame/assets/arena_bg.png', 'rgame/assets/audio/music/bgm_normal_stage.mp3'}; missing = required - names; assert not missing, f'missing packaged assets: {sorted(missing)}'"
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          rgame --headless --seed 1234 --platform linux
