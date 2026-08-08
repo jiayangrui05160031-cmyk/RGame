@@ -1,15 +1,17 @@
 # rgame
 
+<p align="right"><strong>中文</strong> | <a href="README_EN.md">English</a></p>
+
 俯视角单屏肉鸽游戏。Windows / Android / iOS 跨平台，自动攻击，三武器循环，三关模式 + 无尽模式。
 
 ## 项目说明
 
-这是把 [《rgame 游戏项目 Harness 总纲》](specs/游戏总体目录.md) 整套规格落地到一个**工程化 Python 项目**的实现：
+这是把 rgame 游戏设计方案落地到一个**工程化 Python 项目**的实现：
 
 - **核心库**：所有规则、状态机、伤害、敌人、抽卡、掉落、成就、存档、日志——`rgame/`。**完全无 GUI 依赖**，可单独用 pytest 测试。
 - **渲染层 A · pygame 桌面**：`rgame/render/pygame_app.py`（默认）。Windows / macOS / Linux 直接跑。
 - **渲染层 B · Kivy 跨平台**：`rgame/render/kivy_app.py`。Android / iOS 横屏，触屏 + 虚拟摇杆。Windows 上也可作 Kivy 桌面版。
-- **构建/发布**：Kivy 端口到 Android 用 buildozer（需要 Linux/macOS 主机）；iOS 用 kivy-ios（需要 macOS 主机）。规格 [构建发布与设备矩阵](specs/构建发布与设备矩阵.md) 给出完整发布门禁。
+- **构建/发布**：Kivy 端口到 Android 用 buildozer（需要 Linux/macOS 主机）；iOS 用 kivy-ios（需要 macOS 主机）。视觉与音频规范见 [VISUAL_AUDIO_REQUIREMENTS.md](VISUAL_AUDIO_REQUIREMENTS.md)。
 
 ## 安装与运行
 

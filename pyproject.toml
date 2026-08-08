@@ -21,6 +21,9 @@ rgame = "main:main"
 [tool.setuptools]
 py-modules = ["main"]
 
+[tool.setuptools.package-data]
+rgame = ["assets/**/*"]
+
 [tool.setuptools.packages.find]
 include = ["rgame*"]
 
