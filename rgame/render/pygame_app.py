@@ -872,6 +872,7 @@ class RGameApp:
                      time_form: str = "T0", damage_level: int = 0) -> pygame.Surface | None:
         """敌人贴图缩放缓存。支持时间形态（T1/T2/T3）和破损（damage1/damage2）变体优先。"""
         src = None
+        frames = self.enemy_sprite_frames.get(config_id, [])
         # 破损贴图优先于时间形态（破损是在当前形态上的损坏版本）
         if damage_level > 0:
             src = self.enemy_damage_sprites.get(config_id, {}).get(damage_level)
@@ -879,7 +880,6 @@ class RGameApp:
             tier = {"T1": 1, "T2": 2, "T3": 3}.get(time_form, 0)
             src = self.enemy_tier_sprites.get(config_id, {}).get(tier)
         if src is None:
-            frames = self.enemy_sprite_frames.get(config_id, [])
             src = frames[frame_index % len(frames)] if frames else self.enemy_sprite_sources.get(config_id)
         if src is None:
             return None

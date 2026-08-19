@@ -176,3 +176,38 @@ AttributeError: 'Enemy' object has no attribute 'hp'
 
 - 修复尚未推送 GitHub。
 - 用户本地的 `rgame_profile*.json` 存档未删除、未修改。
+
+## 2026-08-19 — Round 5：修复第二个崩溃点（enemy_sprite frames 未定义）
+
+### 现象
+
+用户验收时复现“进入战斗后仍卡死”，且明确约定只改 `C:\Users\jiaya\RGame` 工作区。
+
+### 根因
+
+`_enemy_sprite()` 中 `frames` 只在“无破损贴图且无时间形态贴图”的分支里赋值。当敌人进入
+破损贴图路径（`damage_level=1/2`，半血以下）或时间形态路径（`T1/T2/T3`）时，`src`
+先被赋值，后面的 `len(frames)` 引用了从未定义的局部变量，抛 `UnboundLocalError`。
+这发生在第一只要掉血的怪出现时，同样被主入口异常处理挡住，表现与上一轮完全一致。
+
+### 修复
+
+- `_enemy_sprite()` 顶部提前初始化 `frames = self.enemy_sprite_frames.get(config_id, [])`，
+  破损/形态/动画三条路径共用同一变量，不再依赖分支才能定义。
+- 回归测试扩展为覆盖满血、半血破损（damage1）、重伤裂甲（damage2）、时间形态 T2 四条渲染路径。
+
+### 验证（全部在 C 盘工作区）
+
+- `python -m pytest -q`：6 passed。
+- `python -m compileall -q rgame main.py` + headless 启动：通过。
+- 全路径渲染冒烟：
+  - 真实战斗 45 秒：状态 RESULT，无异常。
+  - 9 种敌人 × 3 档血量 × 4 种形态 = 108 个实例渲染：通过。
+  - 全部 5 关背景 + 无尽模式：通过。
+  - 武器 HUD 含新武器：通过。
+
+### 范围纪律（本轮纠正）
+
+- 之前排查时误改了 `D:\游戏测试\成型文件` 的副本；用户明确只以 C 盘工作区为准。已把 D 盘
+  副本恢复原状、删除临时文件和备份。后续一律只在 `C:\Users\jiaya\RGame` 修改，推送待用户点头。
+- 用户 3 份 `rgame_profile*.json` 存档未跟踪、未删除、未修改。

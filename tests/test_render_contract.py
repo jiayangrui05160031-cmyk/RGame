@@ -37,7 +37,7 @@ def test_ui_font_cache_reuses_same_scaled_font() -> None:
         pygame.quit()
 
 
-def test_world_render_handles_spawned_enemy_without_crashing(tmp_path) -> None:
+def test_world_render_handles_spawned_enemy_states(tmp_path) -> None:
     app = pygame_app.RGameApp(
         seed=42,
         platform="linux",
@@ -48,13 +48,19 @@ def test_world_render_handles_spawned_enemy_without_crashing(tmp_path) -> None:
         app.login_active = False
         app.engine.start_run(preset_id="preset_balanced")
         cfg = app.engine.bundle.enemies["spinner_chaser"]
-        enemy = spawn_enemy(
-            config=cfg,
-            position=(1200.0, 540.0),
-            rng=app.engine.context.rng.get("enemy_spawn_rng"),
-            time_form="T0",
-        )
-        app.engine.spawn_director.enemies.append(enemy)
+        # 覆盖满血 / 半血破损（damage1）/ 重伤裂甲（damage2）/ 时间形态 T2 四条渲染路径，
+        # 防止再次出现 enemy_sprite 中 frames 未定义导致的 UnboundLocalError。
+        for i, (hp_ratio, time_form) in enumerate(
+            ((1.0, "T0"), (0.35, "T0"), (0.12, "T0"), (1.0, "T2"))
+        ):
+            enemy = spawn_enemy(
+                config=cfg,
+                position=(1200.0 + i * 40, 540.0),
+                rng=app.engine.context.rng.get("enemy_spawn_rng"),
+                time_form=time_form,
+            )
+            enemy.current_hp = enemy.max_hp * hp_ratio
+            app.engine.spawn_director.enemies.append(enemy)
         app._render()
     finally:
         app.engine.logger.close()
