@@ -94,3 +94,29 @@ def test_enter_battle_first_poll_events_no_crash(tmp_path) -> None:
     finally:
         app.engine.logger.close()
         pygame.quit()
+
+
+def test_player_fallback_render_no_crash(tmp_path) -> None:
+    """回归：无玩家贴图（CI 未拉 LFS / 贴图缺失）时 fallback 圆渲染不得抛 NameError。
+
+    修复前 COL_PLAYER_TRIM 只被引用、从未定义；本地有贴图走贴图分支不触发，
+    CI 上资产缺失走 fallback 分支必炸（实测 NameError: COL_PLAYER_TRIM）。
+    """
+    app = pygame_app.RGameApp(
+        seed=3,
+        platform="linux",
+        save_path=str(tmp_path / "profile.json"),
+        log_path=str(tmp_path / "run.log"),
+    )
+    try:
+        app.login_active = False
+        app.engine.start_run(preset_id="preset_balanced")
+        # 强制玩家贴图缺失：_player_sprite() 返回 None → 走 fallback 圆渲染
+        app.player_sprite_frames = []
+        app.player_attack_frames = []
+        app.player_sprite_source = None
+        app._sprite_scale_cache.clear()
+        app._render()
+    finally:
+        app.engine.logger.close()
+        pygame.quit()

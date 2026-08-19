@@ -249,3 +249,36 @@ RUNNING（战斗），第一帧事件轮询必然读取未定义属性，抛 `At
 
 - 本地分支 `agent/rgame-improvement-local`，推送待用户点头（与 Round 0 约定一致）。
 - 用户 `rgame_profile*.json` 存档未跟踪、未修改。
+
+## 2026-08-19 — Round 7：修复 CI 失败（COL_PLAYER_TRIM 未定义 + LFS 未拉取）
+
+### 现象
+
+推送到 GitHub main 后 Actions CI 失败（run 32247972550，18s），
+`test_world_render_handles_spawned_enemy_states` 在 `_draw_player()` 抛
+`NameError: name 'COL_PLAYER_TRIM' is not defined`。本地 pytest 全绿。
+
+### 根因
+
+- `COL_PLAYER_TRIM` 在 pygame_app.py 中只被引用、从未定义（theme.py 有
+  `PLAYER_TRIM`，但模块常量漏了这行映射）。玩家贴图存在时走贴图分支不触发；
+  贴图缺失时走 fallback 圆渲染必炸。
+- CI 的 `actions/checkout` 未开 `lfs: true`，LFS 资产只是指针文件 → 玩家贴图
+  加载失败 → 暴露上述幽灵常量。这是"本地绿、CI 红"的典型环境差。
+
+### 修复
+
+- `pygame_app.py`：补 `COL_PLAYER_TRIM = T.PLAYER_TRIM`。
+- `.github/workflows/ci.yml`：checkout 加 `lfs: true`，CI 与本地资产一致，
+  不再掩盖 fallback 路径问题。
+- 新增回归测试 `test_player_fallback_render_no_crash`：强制贴图缺失渲染
+  fallback 分支（回滚修复后精确复现 NameError）。
+
+### 验证
+
+- `python -m pytest -q`：8 passed；单测回滚验证通过（无修复必失败）。
+- CI 重新运行结果见 run 记录。
+
+### 状态
+
+- 推送到 GitHub main（用用户 token 文件内有效 token）。
