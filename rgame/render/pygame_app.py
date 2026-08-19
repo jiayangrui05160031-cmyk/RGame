@@ -2302,7 +2302,7 @@ class RGameApp:
                 enemy_frame += 4
             sprite = self._enemy_sprite(e.config_id, int(max(base_size * self.scale, wr * 2.9)),
                                        enemy_frame, time_form=e.time_form,
-                                       damage_level=2 if (e.max_hp > 0 and e.hp / e.max_hp < 0.2) else 1 if (e.max_hp > 0 and e.hp / e.max_hp < 0.5) else 0)
+                                       damage_level=2 if (e.max_hp > 0 and e.current_hp / e.max_hp < 0.2) else 1 if (e.max_hp > 0 and e.current_hp / e.max_hp < 0.5) else 0)
         # 3. 绘制贴图（旋转朝向）
         if sprite is not None:
             # 敌人的 facing 本来就是角度；旧代码再次 degrees() 导致旋转乱跳。

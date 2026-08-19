@@ -6,6 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import pygame
 
+from rgame.enemies.enemies import spawn_enemy
 from rgame.render import pygame_app
 
 
@@ -33,4 +34,28 @@ def test_ui_font_cache_reuses_same_scaled_font() -> None:
         second = pygame_app.get_ui_font(18)
         assert first is second
     finally:
+        pygame.quit()
+
+
+def test_world_render_handles_spawned_enemy_without_crashing(tmp_path) -> None:
+    app = pygame_app.RGameApp(
+        seed=42,
+        platform="linux",
+        save_path=str(tmp_path / "profile.json"),
+        log_path=str(tmp_path / "run.log"),
+    )
+    try:
+        app.login_active = False
+        app.engine.start_run(preset_id="preset_balanced")
+        cfg = app.engine.bundle.enemies["spinner_chaser"]
+        enemy = spawn_enemy(
+            config=cfg,
+            position=(1200.0, 540.0),
+            rng=app.engine.context.rng.get("enemy_spawn_rng"),
+            time_form="T0",
+        )
+        app.engine.spawn_director.enemies.append(enemy)
+        app._render()
+    finally:
+        app.engine.logger.close()
         pygame.quit()

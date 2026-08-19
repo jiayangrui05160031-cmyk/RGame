@@ -139,3 +139,40 @@
 - 强制激活 `w_ember_drone` 运行 4 秒：状态 `RUNNING`，无崩溃。
 - 强制激活 `w_railbow` 运行 4 秒：状态 `RUNNING`，产生 1 个玩家投射物。
 - 直接生成 `rail_turret` 运行 8 秒：进入 `recovery`，产生 1 个敌方投射物，远程攻击路径正常。
+
+## 2026-08-19 — Round 4：修复进入战斗后卡死
+
+### 现象
+
+用户反馈：进入游戏界面后无法操作，窗口像卡死。
+
+### 根因证据
+
+使用真实窗口启动并以独立临时存档复现；诊断脚本在进入敌人渲染路径时得到完整异常：
+
+```text
+AttributeError: 'Enemy' object has no attribute 'hp'
+```
+
+位置：`rgame/render/pygame_app.py::_draw_enemy`。  
+`Enemy` 数据类的真实生命字段是 `current_hp`。主入口捕获异常后会停在 `input("按 Enter 退出...")`，因此用户看到的是窗口不再响应，而不是正常的游戏暂停。
+
+### 修复
+
+- 将 `_draw_enemy` 中的 `e.hp / e.max_hp` 改为 `e.current_hp / e.max_hp`。
+- 新增 `test_world_render_handles_spawned_enemy_without_crashing`，直接生成敌人并执行真实 pygame 渲染路径，防止该问题回归。
+- 未修改输入系统、战斗公式或敌人状态机。
+
+### 验证
+
+- 定向渲染测试：3 passed。
+- 完整测试：6 passed。
+- 资源校验：61/61 通过。
+- headless 启动：`Engine booted: RUNNING`。
+- 真实渲染基准：60 帧耗时 0.180 秒，平均 2.99ms/帧，理论 FPS 约 334。
+- 编译检查和 `git diff --check`：通过。
+
+### 状态
+
+- 修复尚未推送 GitHub。
+- 用户本地的 `rgame_profile*.json` 存档未删除、未修改。
