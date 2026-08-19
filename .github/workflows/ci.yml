@@ -31,6 +31,9 @@ jobs:
       - name: Compile
         run: python -m compileall -q rgame main.py
 
+      - name: Verify source assets
+        run: python rgame/tools/verify_assets.py --quiet
+
       - name: Test
         run: python -m pytest -q
 

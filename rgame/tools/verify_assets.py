@@ -1,12 +1,15 @@
 """
 校验脚本：检查所有需要的图是否就位、尺寸是否对、是否有alpha通道
 """
+import argparse
 import sys
 from pathlib import Path
+
 from PIL import Image
 
 
-BASE = Path(r"D:\游戏测试\1\成型文件\rgame\assets\v2")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_BASE = REPO_ROOT / "rgame" / "assets" / "v2"
 
 
 CHECKS = [
@@ -75,17 +78,31 @@ CHECKS = [
 ]
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="校验 RGame V2 资源")
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=DEFAULT_BASE,
+        help="资源根目录，默认使用当前仓库的 rgame/assets/v2",
+    )
+    parser.add_argument("--quiet", action="store_true", help="只输出汇总")
+    args = parser.parse_args(argv)
+    base = args.base.expanduser().resolve()
+
     ok = 0
     miss = 0
     bad_size = 0
     no_alpha = 0
-    print(f"{'状态':<4} {'尺寸':<11} {'Alpha':<6} {'文件':<50} 描述")
-    print("-" * 110)
+    if not args.quiet:
+        print(f"资源根目录: {base}")
+        print(f"{'状态':<4} {'尺寸':<11} {'Alpha':<6} {'文件':<50} 描述")
+        print("-" * 110)
     for rel, expected_size, desc in CHECKS:
-        p = BASE / rel
+        p = base / rel
         if not p.exists():
-            print(f"{'缺':<4} {'-':<11} {'-':<6} {rel:<50} {desc}")
+            if not args.quiet:
+                print(f"{'缺':<4} {'-':<11} {'-':<6} {rel:<50} {desc}")
             miss += 1
             continue
         try:
@@ -100,12 +117,16 @@ def main():
                 no_alpha += 1
             if size_ok and img.mode == "RGBA":
                 ok += 1
-            print(f"{mark:<4} {size:<11} {has_alpha:<6} {rel:<50} {desc}")
-        except Exception as e:
-            print(f"??   error     -       {rel:<50} {e}")
-    print("-" * 110)
+            if not args.quiet:
+                print(f"{mark:<4} {size:<11} {has_alpha:<6} {rel:<50} {desc}")
+        except Exception as exc:
+            if not args.quiet:
+                print(f"??   error     -       {rel:<50} {exc}")
+    if not args.quiet:
+        print("-" * 110)
     print(f"OK: {ok}  缺失: {miss}  尺寸不对: {bad_size}  无Alpha: {no_alpha}  总: {len(CHECKS)}")
+    return 0 if miss == 0 and bad_size == 0 and no_alpha == 0 else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

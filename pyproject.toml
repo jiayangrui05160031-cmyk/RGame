@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-cov"]
+dev = ["pytest>=7", "pytest-cov", "pillow>=10"]
 
 [project.scripts]
 rgame = "main:main"
