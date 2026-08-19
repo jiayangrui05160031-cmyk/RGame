@@ -51,6 +51,13 @@ CHECKS = [
     ("enemies/minelayer_bomber_damage2.png", "1024x1024", "爆破哥布林 dmg2"),
     ("enemies/crystal_sniper_damage1.png", "1024x1024", "水晶狙击兵 dmg1"),
     ("enemies/crystal_sniper_damage2.png", "1024x1024", "水晶狙击兵 dmg2"),
+    # === P1 新增纵向切片 ===
+    ("enemies/mine_leech_sheet.png", "2048x2048", "矿脉寄生体动画表"),
+    ("enemies/rail_turret_sheet.png", "2048x2048", "轨道炮台动画表"),
+    ("weapons/weapon_railbow.png", "256x256", "磁轨长弓图标"),
+    ("weapons/weapon_ember_drone.png", "256x256", "熔核无人机图标"),
+    ("backgrounds/arena_bg_stage4-v2.png", "1920x1080", "第四关能源矿区背景"),
+    ("backgrounds/arena_bg_stage5-v2.png", "1920x1080", "第五关虚空核心背景"),
     # === P2 玩家形态 ===
     ("player/player_nimble_sheet.png", "2048x2048", "玩家轻捷形态"),
     ("player/player_heavy_sheet.png", "2048x2048", "玩家重装形态"),

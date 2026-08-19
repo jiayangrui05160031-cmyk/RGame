@@ -90,3 +90,46 @@
 
 - 本轮只做渲染对象复用和缩放缓存，不改变游戏规则。
 - 后续需要在敌人高密度场景记录 FPS、对象数和渲染耗时，再决定是否加入动态粒子降级。
+
+## 2026-08-19 — Round 3：内容纵向切片与原创资产
+
+### 修改
+
+- `rgame/config/content.py`
+  - 新增敌人 `mine_leech`（矿脉寄生体）和 `rail_turret`（轨道炮台）。
+  - 新增武器 `w_railbow`（磁轨长弓）和 `w_ember_drone`（熔核无人机）。
+  - 新增对应彩色卡牌。
+  - 第 4/5 关和无尽模式加入新敌人池，并保持权重总和为 1。
+- `rgame/enemies/enemies.py`
+  - 修复敌人生成快照没有把配置 `tags` 写入实例的问题；这对新敌人的能力判断和后续扩展很重要。
+- `rgame/engine.py`
+  - 新武器加入稀有度、商店和远程炮台投射物视觉映射。
+- `rgame/render/theme.py` / `rgame/render/pygame_app.py`
+  - 新敌人、新武器资源接入加载器。
+  - 第 4/5 关背景加载、场景色调和 Endless 背景选择接通。
+  - 熔核无人机图标在场上作为绕玩家运行的伴随单位显示。
+  - 场景色调和暗幕 Surface 增加缓存。
+- `rgame/tools/generate_vslice_assets.py`
+  - 新增可复现的原创程序化资产生成器。
+- 新增资源：
+  - 两张 2048x2048 敌人动画表。
+  - 两张 256x256 武器图标。
+  - 两张 1920x1080 RGBA 关卡背景。
+- `rgame/tools/verify_assets.py`
+  - 资源清单从 55 项扩展到 61 项。
+- `CHANGELOG.md` / `README.md`
+  - 记录本地未发布切片，避免把未验收内容误写成远程版本。
+
+### 验证
+
+- `python -m pytest --collect-only -q`：5 tests collected。
+- `python -m pytest -q`：5 passed。
+- `python rgame/tools/verify_assets.py --quiet`：61/61，通过。
+- `python -m compileall -q rgame main.py`：通过。
+- `python main.py --headless --seed 42 --platform linux`：通过。
+- pygame dummy 资源加载：新敌人 2/2、新武器 2/2、第 4/5 关背景已加载。
+- 第 4 关 10 秒引擎模拟：新敌人 `mine_leech` 已实际生成并参与战斗，状态保持 `RUNNING`。
+
+### 未推送内容
+
+- 本轮所有代码、资源和文档仍只在本地分支，等待用户验收。

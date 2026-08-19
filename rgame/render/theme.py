@@ -107,6 +107,8 @@ ENEMY_SPRITE_PATHS = {
     "crystal_sniper": "chars/crystal_sniper-v2.png",
     "multinode_spreader": "chars/multinode_spreader.png",
     "minelayer_bomber": "chars/minelayer_bomber.png",
+    "mine_leech": "v2/enemies/mine_leech_sheet.png",
+    "rail_turret": "v2/enemies/rail_turret_sheet.png",
 }
 
 PLAYER_SPRITE_PATH = "chars/player_hero_transparent.png"

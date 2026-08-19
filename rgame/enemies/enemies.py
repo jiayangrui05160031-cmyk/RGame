@@ -157,6 +157,7 @@ def spawn_enemy(
         is_elite=is_elite,
         elite_affixes=elite_affixes,
         time_form=time_form,
+        tags=tuple(config.get("tags", ())),
         base_kill_score=int(config.get("base_kill_score", 10)),
         xp_value=int(config.get("xp_value", 1)),
         drop_table_id=str(config.get("drop_table_id", "std_drops")),

@@ -1,5 +1,13 @@
 # 变更日志
 
+## Unreleased（本地开发分支）
+
+- 建立本地优化日志和设计文档，所有改动先在 `agent/rgame-improvement-local` 验收。
+- 资源校验改为基于仓库路径，补充 CI 资源校验和配置/渲染契约测试。
+- pygame UI 增加字体、面板、场景遮罩和缩放缓存，窗口 resize 后自动刷新缓存。
+- 新增矿脉寄生体、轨道炮台、磁轨长弓和熔核无人机，并接入第 4/5 关与无尽模式内容池。
+- 新增第 4 关能源矿区与第 5 关虚空核心背景原型及对应 PNG 资源。
+
 ## 0.1.0 (2026-07-10)
 - 初版：完整 Harness 总纲落地的工程化 Python 项目。
 - 核心库 ``rgame`` 全部模块（core / config / combat / enemies / cards / drops / level / achievements / save / log / engine）。

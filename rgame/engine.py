@@ -134,6 +134,8 @@ WEAPON_RARITY_BY_ID = {
     "w_rockfall_hammer": "epic",
     "w_wind_tachi": "rare",
     "w_thunder_array": "legendary",
+    "w_railbow": "legendary",
+    "w_ember_drone": "epic",
 }
 
 
@@ -261,6 +263,8 @@ SHOP_ITEMS = {
     "weapon:w_rockfall_hammer": {"name": "永久武器：岩崩战锤", "cost": 245, "weapon_id": "w_rockfall_hammer"},
     "weapon:w_wind_tachi": {"name": "永久武器：风切太刀", "cost": 205, "weapon_id": "w_wind_tachi"},
     "weapon:w_thunder_array": {"name": "永久武器：四雷阵盘", "cost": 255, "weapon_id": "w_thunder_array"},
+    "weapon:w_railbow": {"name": "永久武器：磁轨长弓", "cost": 285, "weapon_id": "w_railbow"},
+    "weapon:w_ember_drone": {"name": "永久武器：熔核无人机", "cost": 275, "weapon_id": "w_ember_drone"},
     "equipment:eq_coin_magnet": {"name": "装备：金币磁环", "cost": 120, "equipment_id": "eq_coin_magnet"},
     "equipment:eq_vital_core": {"name": "装备：生命核心", "cost": 140, "equipment_id": "eq_vital_core"},
     "equipment:eq_overclock": {"name": "装备：超频齿轮", "cost": 160, "equipment_id": "eq_overclock"},
@@ -1512,6 +1516,7 @@ class Engine:
                         "lantern_shooter": "enemy_arcane",
                         "multinode_spreader": "enemy_shard",
                         "crystal_sniper": "enemy_rail",
+                        "rail_turret": "enemy_rail",
                     }.get(enemy_inst.config_id, "enemy_bullet"),
                 )
             step_enemy(

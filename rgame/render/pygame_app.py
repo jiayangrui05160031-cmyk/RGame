@@ -466,6 +466,7 @@ class RGameApp:
         self._music_track: str | None = None
         # 通用缩放缓存：(config_id, target_size) -> Surface
         self._sprite_scale_cache: dict[tuple, pygame.Surface] = {}
+        self._scene_overlay_cache: dict[tuple, pygame.Surface] = {}
         self._load_assets()
         # 状态
         self.running = True
@@ -539,7 +540,7 @@ class RGameApp:
                 self.bg_source = pygame.image.load(str(bg_path)).convert()
             except pygame.error:
                 self.bg_source = None
-        for stage in (2, 3):
+        for stage in (2, 3, 4, 5):
             stage_bg_path = self.v2_assets_dir / "backgrounds" / f"arena_bg_stage{stage}-v2.png"
             if not stage_bg_path.exists():
                 stage_bg_path = self.assets_dir / f"arena_bg_stage{stage}.png"
@@ -648,6 +649,8 @@ class RGameApp:
             "w_rockfall_hammer": "weapon_rockfall_hammer.png",
             "w_wind_tachi": "weapon_wind_tachi.png",
             "w_thunder_array": "weapon_thunder_array.png",
+            "w_railbow": "weapon_railbow.png",
+            "w_ember_drone": "weapon_ember_drone.png",
         }
         for weapon_id, filename in weapon_names.items():
             loaded = self._load_clean_asset(self.v2_assets_dir / "weapons" / filename)
@@ -840,7 +843,7 @@ class RGameApp:
         return True
 
     def _background_surface(self) -> pygame.Surface | None:
-        stage = 3 if self.engine.context.mode == "endless" else min(3, self.engine.context.stage_index)
+        stage = 5 if self.engine.context.mode == "endless" else min(5, self.engine.context.stage_index)
         source = self.stage_bg_sources.get(stage, self.bg_source)
         if source is None:
             return None
@@ -1410,6 +1413,7 @@ class RGameApp:
         # 同步全局 UI 字号缩放，并清理旧窗口尺寸的 UI 缓存。
         self._refresh_fonts()
         self._sprite_scale_cache.clear()
+        self._scene_overlay_cache.clear()
         self.bg_scaled = None
         self.bg_scaled_key = None
 
@@ -2017,15 +2021,20 @@ class RGameApp:
                 pygame.draw.line(self.screen, T.BG_PANEL_ALT, (self.world_rect.x, y), (self.world_rect.right, y), 1)
             pygame.draw.circle(self.screen, (27, 58, 82), (cx, cy), int(300 * self.scale), width=2)
             pygame.draw.circle(self.screen, (18, 40, 64), (cx, cy), int(150 * self.scale), width=1)
-        stage = self.engine.context.stage_index if self.engine.context.mode != "endless" else 4
+        stage = self.engine.context.stage_index if self.engine.context.mode != "endless" else 5
         stage_tints = {
             1: (20, 70, 105, 42),
             2: (145, 48, 20, 58),
             3: (105, 25, 145, 66),
             4: (20, 120, 78, 62),
+            5: (120, 35, 180, 64),
         }
-        tint = pygame.Surface((self.world_rect.w, self.world_rect.h), pygame.SRCALPHA)
-        tint.fill(stage_tints.get(stage, stage_tints[1]))
+        tint_key = ("stage_tint", stage, self.world_rect.w, self.world_rect.h)
+        tint = self._scene_overlay_cache.get(tint_key)
+        if tint is None:
+            tint = pygame.Surface((self.world_rect.w, self.world_rect.h), pygame.SRCALPHA)
+            tint.fill(stage_tints.get(stage, stage_tints[1]))
+            self._scene_overlay_cache[tint_key] = tint
         self.screen.blit(tint, self.world_rect.topleft)
         # 静态场景装饰：只在边缘出现，提供场景辨识度且不遮挡战斗中心。
         prop_layout = (
@@ -2056,8 +2065,12 @@ class RGameApp:
             for x in range(self.world_rect.x - step + offset, self.world_rect.right, step):
                 pygame.draw.line(self.screen, (55, 185, 125), (x, self.world_rect.y), (x, self.world_rect.bottom), 1)
         # 半透遮罩（让贴图更突出）
-        veil = pygame.Surface((self.world_rect.w, self.world_rect.h), pygame.SRCALPHA)
-        veil.fill((4, 8, 16, 105))
+        veil_key = ("world_veil", self.world_rect.w, self.world_rect.h)
+        veil = self._scene_overlay_cache.get(veil_key)
+        if veil is None:
+            veil = pygame.Surface((self.world_rect.w, self.world_rect.h), pygame.SRCALPHA)
+            veil.fill((4, 8, 16, 105))
+            self._scene_overlay_cache[veil_key] = veil
         self.screen.blit(veil, self.world_rect.topleft)
         # 世界边界：粗黑描边
         pygame.draw.rect(self.screen, COL_HUD_BORDER, self.world_rect, width=3)
@@ -2187,6 +2200,19 @@ class RGameApp:
             pygame.draw.circle(self.screen, COL_PLAYER_TRIM, (x, y), r)
             pygame.draw.circle(self.screen, COL_PLAYER, (x, y), r - 3)
             pygame.draw.circle(self.screen, COL_PLAYER_CORE, (x, y), max(3, int(r * 0.42)))
+        # 熔核无人机：使用真实武器图标作为场上伴随单位，而不是只在 HUD 槽位显示。
+        if self.engine.weapon_sys.active and self.engine.weapon_sys.active.weapon_id == "w_ember_drone":
+            orbit_r = int(82 * self.scale)
+            orbit_a = self.engine.timer.run_time * 2.8
+            dx = x + int(math.cos(orbit_a) * orbit_r)
+            dy = y + int(math.sin(orbit_a) * orbit_r)
+            pygame.draw.line(self.screen, (*T.ACCENT_3, 72), (x, y), (dx, dy), max(1, int(2 * self.scale)))
+            drone = self._scaled_art(self.weapon_icon_sources.get("w_ember_drone"), ("weapon", "w_ember_drone", "field"), (max(24, int(42 * self.scale)), max(24, int(42 * self.scale))))
+            if drone is not None:
+                self.screen.blit(drone, drone.get_rect(center=(dx, dy)))
+            else:
+                pygame.draw.circle(self.screen, COL_HUD_BORDER, (dx, dy), max(9, int(15 * self.scale)))
+                pygame.draw.circle(self.screen, T.ACCENT_3, (dx, dy), max(7, int(12 * self.scale)))
         # 3. 护盾圈 / 无敌圈
         if self.engine.player.current_shield > 0:
             pygame.draw.circle(self.screen, COL_HUD_BORDER, (x, y), r + 6, width=2)
@@ -2269,7 +2295,7 @@ class RGameApp:
                 "wingblade_sprinter": 66, "spinner_chaser": 72,
                 "lantern_shooter": 82, "multinode_spreader": 88,
                 "shellguard_heavy": 96, "minelayer_bomber": 86,
-                "crystal_sniper": 104,
+                "crystal_sniper": 104, "mine_leech": 78, "rail_turret": 112,
             }.get(e.config_id, 74)
             enemy_frame = int(self.engine.timer.run_time * (11 if e.state.value == "seeking" else 7)) % 4
             if e.state.value in ("windup", "attacking"):

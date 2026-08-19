@@ -15,6 +15,9 @@ def test_default_bundle_references_only_declared_content() -> None:
     assert len(bundle.weapons) >= 20
     assert len(bundle.enemies) >= 7
     assert len(bundle.stages) >= 6
+    assert {"mine_leech", "rail_turret"} <= set(bundle.enemies)
+    assert {"w_railbow", "w_ember_drone"} <= set(bundle.weapons)
+    assert bundle.enemies["rail_turret"]["tags"] == ["ranged", "sniper", "turret"]
     for stage in bundle.stages.values():
         assert set(stage["enemy_pool"]) <= set(bundle.enemies)
         assert len(stage["enemy_pool"]) == len(stage["enemy_weights"])
