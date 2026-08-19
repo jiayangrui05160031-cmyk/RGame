@@ -158,23 +158,40 @@ _app_state = _UiState()
 
 
 _glow_cache: dict[tuple[int, tuple[int, int, int], int], pygame.Surface] = {}
+_font_cache: dict[tuple[str, int, bool], pygame.font.Font] = {}
+_panel_cache: dict[tuple, pygame.Surface] = {}
 
 
 def _ui_size(base: int) -> int:
-    """所有 HUD/菜单文字都按世界缩放比例换算字号。
-
-    draw_text 内部的 font 缓存只接受整数 size；以前固定 size=18 在 1280x720 上会
-    直接溢出 160px 面板，是字体重叠的根因（子报告 P0-1）。
-    """
+    """所有 HUD/菜单文字都按世界缩放比例换算字号。"""
     scale = getattr(_app_state, "ui_scale", 1.0) or 1.0
     return max(10, min(96, int(round(base * scale))))
+
+
+def get_ui_font(base_size: int, *, bold: bool = False) -> pygame.font.Font:
+    """获取按当前 UI 缩放的缓存字体，避免每次绘制反复创建字体对象。"""
+    size = _ui_size(base_size)
+    key = (FONT_NAME, size, bool(bold))
+    cached = _font_cache.get(key)
+    if cached is not None:
+        return cached
+    font = pygame.font.SysFont(FONT_NAME, size, bold=bold)
+    _font_cache[key] = font
+    return font
+
+
+def clear_ui_cache() -> None:
+    """在测试或字体/分辨率环境变化时清空 UI 缓存。"""
+    _font_cache.clear()
+    _panel_cache.clear()
+    clear_glow_cache()
 
 
 def draw_text(surf, text, pos, *, size=20, color=COL_TEXT, font=None,
               outline: int = 0, outline_color=COL_TEXT_OUTLINE):
     """绘制文字。outline>0 时画一层黑色描边（元气骑士风必备）。"""
     if font is None:
-        font = pygame.font.SysFont(FONT_NAME, _ui_size(size), bold=False)
+        font = get_ui_font(size)
     img = font.render(str(text), True, color)
     if outline > 0:
         shadow = font.render(str(text), True, outline_color)
@@ -191,7 +208,7 @@ def draw_text(surf, text, pos, *, size=20, color=COL_TEXT, font=None,
 def draw_text_center(surf, text, rect, *, color=COL_TEXT, font=None, y_offset=0,
                      outline: int = 0, outline_color=COL_TEXT_OUTLINE, size: int = 20):
     if font is None:
-        font = pygame.font.SysFont(FONT_NAME, _ui_size(size), bold=False)
+        font = get_ui_font(size)
     img = font.render(str(text), True, color)
     x = rect.centerx - img.get_width() // 2
     y = rect.centery - img.get_height() // 2 + y_offset
@@ -232,16 +249,23 @@ def clear_glow_cache() -> None:
 
 
 def draw_panel(surf, rect, *, border=COL_HUD_BORDER, fill=COL_PANEL, alpha=COL_PANEL_ALPHA, radius=14, outline=3):
-    """元气骑士风面板：4px 黑色描边 + 高对比填充。"""
-    panel = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
-    # 外层黑色描边（粗）
-    if outline > 0:
-        pygame.draw.rect(panel, COL_HUD_BORDER, (0, 0, rect.w, rect.h), border_radius=radius)
-        pygame.draw.rect(panel, (*fill, alpha), (outline, outline, rect.w - 2 * outline, rect.h - 2 * outline), border_radius=max(2, radius - outline))
-    else:
-        pygame.draw.rect(panel, (*fill, alpha), (0, 0, rect.w, rect.h), border_radius=radius)
-    # 高光
-    pygame.draw.line(panel, (*T.ACCENT, 80), (outline + 6, outline + 2), (rect.w - outline - 6, outline + 2), 1)
+    """元气骑士风面板：4px 黑色描边 + 高对比填充。
+
+    面板本身只由尺寸和样式决定，缓存后每帧只需 blit，避免战斗 HUD
+    持续分配大量短生命周期 Surface。
+    """
+    key = (rect.w, rect.h, tuple(border), tuple(fill), int(alpha), int(radius), int(outline))
+    panel = _panel_cache.get(key)
+    if panel is None:
+        panel = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+        if outline > 0:
+            pygame.draw.rect(panel, border, (0, 0, rect.w, rect.h), border_radius=radius)
+            inner = (outline, outline, max(1, rect.w - 2 * outline), max(1, rect.h - 2 * outline))
+            pygame.draw.rect(panel, (*fill, alpha), inner, border_radius=max(2, radius - outline))
+        else:
+            pygame.draw.rect(panel, (*fill, alpha), (0, 0, rect.w, rect.h), border_radius=radius)
+        pygame.draw.line(panel, (*T.ACCENT, 80), (outline + 6, outline + 2), (rect.w - outline - 6, outline + 2), 1)
+        _panel_cache[key] = panel
     surf.blit(panel, rect.topleft)
 
 
@@ -401,10 +425,11 @@ class RGameApp:
             seed=seed,
         )
         # 字体
-        self.font_small = pygame.font.SysFont(FONT_NAME, 16)
-        self.font = pygame.font.SysFont(FONT_NAME, 22)
-        self.font_mid = pygame.font.SysFont(FONT_NAME, 30)
-        self.font_big = pygame.font.SysFont(FONT_NAME, 48)
+        self.font_small: pygame.font.Font
+        self.font: pygame.font.Font
+        self.font_mid: pygame.font.Font
+        self.font_big: pygame.font.Font
+        self._refresh_fonts()
         # 视觉资源
         self.assets_dir = Path(__file__).resolve().parents[1] / "assets"
         self.v2_assets_dir = self.assets_dir / "v2"
@@ -494,6 +519,16 @@ class RGameApp:
         # 当前 ui 缩放，由 RGameApp 在初始化和 _resize 时更新。
         from . import pygame_app as _self_module
         _self_module._app_state.ui_scale = self.scale
+
+    def _refresh_fonts(self) -> None:
+        """按当前窗口缩放刷新字体引用，避免 resize 后字号仍沿用旧窗口。"""
+        from . import pygame_app as _self_module
+        _self_module._app_state.ui_scale = self.scale
+        _font_cache.clear()
+        self.font_small = get_ui_font(16)
+        self.font = get_ui_font(22)
+        self.font_mid = get_ui_font(30)
+        self.font_big = get_ui_font(48)
 
     def _load_assets(self) -> None:
         bg_path = self.v2_assets_dir / "backgrounds" / "arena_bg_stage1-v2.png"
@@ -1372,9 +1407,11 @@ class RGameApp:
         joy_radius = int(0.06 * min(self.screen_w, self.screen_h))
         self.touch.joy_center = (safe["left"] + joy_radius + 24, self.screen_h - safe["bottom"] - joy_radius - 24)
         self.touch.joy_radius = joy_radius
-        # 同步全局 UI 字号缩放。
-        from . import pygame_app as _self_module
-        _self_module._app_state.ui_scale = self.scale
+        # 同步全局 UI 字号缩放，并清理旧窗口尺寸的 UI 缓存。
+        self._refresh_fonts()
+        self._sprite_scale_cache.clear()
+        self.bg_scaled = None
+        self.bg_scaled_key = None
 
     # ---- UI 区域（屏幕坐标）------------------------------------------------
 

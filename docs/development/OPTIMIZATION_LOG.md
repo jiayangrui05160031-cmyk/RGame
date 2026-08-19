@@ -62,3 +62,31 @@
 
 - 基线设计文档：`967e748`
 - Round 1 待提交，验收后继续 UI/流畅度切片。
+
+## 2026-08-19 — Round 2：UI 缓存与窗口缩放切片
+
+### 修改
+
+- `rgame/render/pygame_app.py`
+  - 增加字体缓存 `get_ui_font`，避免无传入字体时每次绘制创建 `SysFont`。
+  - 增加面板 Surface 缓存，战斗 HUD 相同样式面板只生成一次，后续直接复用。
+  - 增加 UI 缓存清理入口。
+  - 窗口 resize 后重新计算字体、清理旧精灵缩放缓存和背景缓存，避免新旧分辨率混用。
+  - 保留原有 fallback 和战斗逻辑，不修改 `Engine.tick`、伤害和敌人规则。
+- `tests/test_render_contract.py`
+  - 增加同位置伤害数字的错位、入场缩放和淡出测试。
+  - 增加字体缓存复用测试。
+
+### 验证
+
+- `python -m pytest --collect-only -q`：5 tests collected。
+- `python -m pytest -q`：5 passed。
+- `python -m compileall -q rgame main.py`：通过。
+- `SDL_VIDEODRIVER=dummy` 渲染模块导入：通过。
+- `python main.py --headless --seed 42 --platform linux`：通过。
+- 真实 pygame 窗口：成功启动并获得 Windows 窗口句柄；CUA 视觉分析服务返回 400，因此自绘画布内部的视觉细节未冒充为已验收，待用户本地检查。
+
+### 性能边界
+
+- 本轮只做渲染对象复用和缩放缓存，不改变游戏规则。
+- 后续需要在敌人高密度场景记录 FPS、对象数和渲染耗时，再决定是否加入动态粒子降级。
