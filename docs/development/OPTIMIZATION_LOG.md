@@ -211,3 +211,41 @@ AttributeError: 'Enemy' object has no attribute 'hp'
 - 之前排查时误改了 `D:\游戏测试\成型文件` 的副本；用户明确只以 C 盘工作区为准。已把 D 盘
   副本恢复原状、删除临时文件和备份。后续一律只在 `C:\Users\jiaya\RGame` 修改，推送待用户点头。
 - 用户 3 份 `rgame_profile*.json` 存档未跟踪、未删除、未修改。
+
+## 2026-08-19 — Round 6：修复第三个卡死点（进战斗第一帧 _mouse_move_target 未初始化）
+
+### 现象
+
+用户复现：进入战斗界面瞬间完全卡死，键盘敲击无任何响应，窗口不再刷新。
+
+### 根因
+
+`_mouse_move_target` 从未在 `__init__` 中初始化，只在事件处理器里赋值
+（WASD 移动键、鼠标左/右键、拖拽）。`_update_mouse_movement()` 的守卫是
+`if self.engine.state() != "RUNNING" or self._mouse_move_target is None:` —
+Python 的 `or` 短路使菜单态永不触碰该属性，因此主菜单一切正常；一旦进入
+RUNNING（战斗），第一帧事件轮询必然读取未定义属性，抛 `AttributeError`，
+`app.run()` 抛出后被 main.py 的 `input("按 Enter 退出...")` 兜住，窗口冻结、
+键盘死亡——与用户描述的"进战斗直接卡死"完全一致。此 bug 自 v0.1.0 起就存在，
+只是此前会话里玩家先按过移动键或右键（恰好创建了属性）而未触发。
+
+### 修复
+
+- `__init__` 中显式初始化 `self._mouse_move_target: tuple[float, float] | None = None`。
+- 新增回归测试 `test_enter_battle_first_poll_events_no_crash`：启动 → 直接进
+  RUNNING → 全程不投递任何事件 → `_poll_events()`。修复前必抛 AttributeError，
+  修复后通过。
+- 静态扫描同类隐患：战斗路径上其余"读未初始化属性"均为方法调用或已初始化，
+  `_mouse_move_target` 是唯一雷点。
+
+### 验证
+
+- 回归测试单独验证：stash 掉修复后该测试精确复现 AttributeError；恢复修复后通过。
+- `python -m pytest -q`：7 passed。
+- 无头全流程：菜单轮询 → start_run → 180 帧战斗渲染 + WASD/J/K/Q/R/1/2/3/Esc 按键：无异常。
+- 真实窗口冒烟：修复后启动正常进入主菜单（此前修复前版本在战斗态崩溃）。
+
+### 状态
+
+- 本地分支 `agent/rgame-improvement-local`，推送待用户点头（与 Round 0 约定一致）。
+- 用户 `rgame_profile*.json` 存档未跟踪、未修改。

@@ -509,6 +509,9 @@ class RGameApp:
         self._notice_capacity = 3  # 屏幕中央最多堆 3 条
         self._notice_slot_height = 48  # 每条占 48px，按 ui_scale 缩放在 draw 时生效
         self._polled_shortcut_state = {"j": False, "k": False, "q": False, "l": False}
+        # 鼠标跟随移动目标：必须在 __init__ 初始化，否则进战斗第一帧
+        # _update_mouse_movement() 会 AttributeError（菜单态短路、战斗态必崩）。
+        self._mouse_move_target: tuple[float, float] | None = None
         # P6：活动中的组合技屏幕特效
         self._combo_fx_list: list[dict] = []
         # P7：成就徽章临时状态
