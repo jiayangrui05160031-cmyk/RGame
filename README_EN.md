@@ -2,7 +2,7 @@
 
 # rgame
 
-A top-down, single-screen roguelite for Windows, Android, and iOS, featuring automatic attacks, a three-weapon cycle, three-stage mode, and endless mode.
+A top-down, single-screen roguelite for Windows, Android, and iOS, featuring automatic attacks, a three-weapon cycle, a five-stage campaign, and endless mode.
 
 ## Overview
 
@@ -34,11 +34,12 @@ python -m pytest -q
 
 ## Gameplay
 
-1. Choose three-stage or endless mode from the main menu.
+1. Choose the five-stage campaign or endless mode from the main menu.
 2. Select one of three starting forms.
 3. Move with the keyboard, touch, or virtual joystick while attacks fire automatically.
 4. Cycle through three weapons and combine upgrades from level-up drafts.
 5. Defeat enemies, collect drops, unlock achievements, and preserve progress through saves.
+6. The fourth stage triggers Mine Resonance and the fifth triggers Orbital Lock; dodge the marked zones to finish each event for gold and a card draw.
 
 ## Project layout
 

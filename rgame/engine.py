@@ -56,7 +56,10 @@ from .player.movement import (
 )
 from .player.input_provider import InputAction, InputProvider
 
-from .drops.drops import DropSystem, Pickup, HazardBomb, create_drop_system, spawn_drops_on_enemy_defeated
+from .drops.drops import (
+    DROP_HARD_CAP, DropSystem, Pickup, HazardBomb,
+    create_drop_system, spawn_drops_on_enemy_defeated,
+)
 from .cards.cards import CardSystem, create_card_system
 from .level.scoring import ScoringSystem
 from .level.level_up import LevelSystem, create_level_system, xp_from_kill, xp_to_next
@@ -441,6 +444,7 @@ class Engine:
         self.active_random_event: dict | None = None
         self.next_random_event_at = 24.0
         self.random_event_history: list[dict] = []
+        self.stage_environment_events_seen: set[int] = set()
         self.run_challenges: list[dict] = []
         self.last_challenge_notice: dict | None = None
         self.kill_streak = 0
@@ -741,6 +745,12 @@ class Engine:
                 if ev["tick"] <= 0:
                     ev["tick"] = 1.35
                     self._spawn_event_meteor()
+            elif ev.get("hazard_pattern"):
+                ev["tick"] = float(ev.get("tick", 0.0)) - dt
+                if ev["tick"] <= 0 and int(ev.get("spawned", 0)) < int(ev.get("spawn_count", 0)):
+                    self._spawn_stage_environment_hazard(ev)
+                    ev["spawned"] = int(ev.get("spawned", 0)) + 1
+                    ev["tick"] = float(ev.get("spawn_interval", 1.0))
             if ev["id"] == "rescue_beacon":
                 d = math.hypot(self.player.position[0] - ev["position"][0], self.player.position[1] - ev["position"][1])
                 if d < 250:
@@ -748,21 +758,38 @@ class Engine:
             if ev["left"] <= 0:
                 self._finish_random_event(ev)
                 self.active_random_event = None
-                self.next_random_event_at = self.timer.run_time + 32.0 + self.context.rng.get("drop_rng").range(20)
+                delay = (
+                    10.0 if self._has_pending_stage_environment_event()
+                    else 32.0 + self.context.rng.get("drop_rng").range(20)
+                )
+                self.next_random_event_at = self.timer.run_time + delay
             return
         if self.timer.run_time >= self.next_random_event_at:
             self._start_random_event()
 
+    def _has_pending_stage_environment_event(self) -> bool:
+        stage_index = int(self.context.stage_index)
+        stage = self.bundle.stages.get(f"stage_{stage_index}", {})
+        return bool(stage.get("environment_event")) and stage_index not in self.stage_environment_events_seen
+
     def _start_random_event(self) -> None:
         rng = self.context.rng.get("drop_rng")
-        event_id = list(RANDOM_EVENTS.keys())[rng.range(len(RANDOM_EVENTS))]
-        cfg = RANDOM_EVENTS[event_id]
+        unique_stage_event = self._has_pending_stage_environment_event()
+        if unique_stage_event:
+            stage = self.bundle.stages[f"stage_{self.context.stage_index}"]
+            cfg = stage["environment_event"]
+            event_id = cfg["id"]
+            self.stage_environment_events_seen.add(int(self.context.stage_index))
+        else:
+            event_id = list(RANDOM_EVENTS.keys())[rng.range(len(RANDOM_EVENTS))]
+            cfg = RANDOM_EVENTS[event_id]
         pos = (
             max(self.bounds.min_x + 80, min(self.bounds.max_x - 80, self.player.position[0] + rng.uniform(-420, 420))),
             max(self.bounds.min_y + 80, min(self.bounds.max_y - 80, self.player.position[1] + rng.uniform(-300, 300))),
         )
         ev = {
             "id": event_id,
+            "icon_id": cfg.get("icon_id", event_id),
             "name": cfg["name"],
             "desc": cfg["desc"],
             "left": float(cfg["duration"]),
@@ -770,6 +797,15 @@ class Engine:
             "position": pos,
             "tick": 0.5,
             "started_at": self.timer.run_time,
+            "unique_stage_event": unique_stage_event,
+            "hazard_pattern": cfg.get("hazard_pattern"),
+            "hazard_icon": cfg.get("hazard_icon", "bomb"),
+            "hazard_radius": float(cfg.get("hazard_radius", 0.0)),
+            "hazard_damage": float(cfg.get("hazard_damage", 0.0)),
+            "hazard_arm_delay": float(cfg.get("hazard_arm_delay", 0.35)),
+            "spawn_count": int(cfg.get("spawn_count", 0)),
+            "spawn_interval": float(cfg.get("spawn_interval", 1.35)),
+            "spawned": 0,
         }
         self.active_random_event = ev
         self.random_event_history.append({"id": event_id, "name": cfg["name"], "time": self.timer.run_time})
@@ -784,7 +820,12 @@ class Engine:
         elif event_id == "alien_relic":
             self._apply_random_relic_bonus()
         self.event_bus.publish(self._e("random_event_started", {
-            "id": event_id, "name": cfg["name"], "desc": cfg["desc"], "position": list(pos), "duration": cfg["duration"],
+            "id": event_id,
+            "icon_id": ev["icon_id"],
+            "name": cfg["name"],
+            "desc": cfg["desc"],
+            "position": list(pos),
+            "duration": cfg["duration"],
         }))
 
     def _finish_random_event(self, ev: dict) -> None:
@@ -792,7 +833,7 @@ class Engine:
         if ev["id"] == "rescue_beacon":
             success = float(ev.get("protected", 0.0)) >= ev["duration"] * 0.55
         if success:
-            if ev["id"] in ("rescue_beacon", "meteor_rain"):
+            if ev["id"] in ("rescue_beacon", "meteor_rain") or ev.get("unique_stage_event"):
                 self._grant_gold(24 + 10 * self.context.stage_index, source=f"event:{ev['id']}")
                 self.context.pending_cards += 1
             self.event_bus.publish(self._e("random_event_completed", {"id": ev["id"], "name": ev["name"]}))
@@ -817,6 +858,48 @@ class Engine:
             icon="meteor",
         )
         self.drop_sys.bombs.append(b)
+
+    def _spawn_stage_environment_hazard(self, event: dict) -> None:
+        if len(self.drop_sys.pickups) + len(self.drop_sys.bombs) >= DROP_HARD_CAP:
+            return
+        radius = max(1.0, float(event.get("hazard_radius", 90.0)))
+        px, py = self.player.position
+        wave = int(event.get("spawned", 0))
+        pattern = event.get("hazard_pattern")
+        if pattern == "mine_pulse":
+            angle = wave * 2.399963229728653 + self.context.rng.get("drop_rng").uniform(-0.2, 0.2)
+            distance = 45.0 + (wave % 2) * 24.0
+            px += math.cos(angle) * distance
+            py += math.sin(angle) * distance
+        elif pattern == "rail_lock":
+            lead = min(145.0, max(80.0, self.player.base_move_speed * 0.55))
+            px += math.cos(self.player.facing) * lead
+            py += math.sin(self.player.facing) * lead
+        else:
+            return
+        margin = radius + 16.0
+        position = (
+            max(self.bounds.min_x + margin, min(self.bounds.max_x - margin, px)),
+            max(self.bounds.min_y + margin, min(self.bounds.max_y - margin, py)),
+        )
+        now = self.timer.run_time
+        arm_delay = float(event.get("hazard_arm_delay", 0.45))
+        rng = self.context.rng.get("drop_rng")
+        bomb = HazardBomb(
+            entity_id=f"stage_{event['id']}_{int(now * 1000)}_{rng.range(999)}",
+            position=position,
+            radius=radius,
+            base_damage=float(event.get("hazard_damage", 20.0)),
+            spawn_time=now,
+            arm_delay=arm_delay,
+            armed_at=now + arm_delay,
+            lifetime=2.5,
+            icon=str(event.get("hazard_icon", "bomb")),
+        )
+        self.drop_sys.bombs.append(bomb)
+        self.event_bus.publish(self._e("environment_hazard_spawned", {
+            "event_id": event["id"], "position": list(position), "radius": radius,
+        }))
 
     def _grant_random_high_tier_weapon(self, *, source: str) -> None:
         cur = {w.weapon_id for w in self.weapon_sys.stack}
@@ -1011,6 +1094,7 @@ class Engine:
         self.active_random_event = None
         self.next_random_event_at = 24.0
         self.random_event_history = []
+        self.stage_environment_events_seen.clear()
         self.run_challenges = self._generate_run_challenges()
         self.last_challenge_notice = None
         self.kill_streak = 0
@@ -2123,6 +2207,10 @@ class Engine:
         self.projectile_sys.reset()
         self.drop_sys.reset()
         self.super_director.reset()
+        if self.active_random_event and self.active_random_event.get("unique_stage_event"):
+            self.active_random_event = None
+        if self._has_pending_stage_environment_event():
+            self.next_random_event_at = self.timer.run_time + 10.0
         self.stage_lockdown = False
         self.stage_boss_defeated = False
         self.stage_boss_queued = False

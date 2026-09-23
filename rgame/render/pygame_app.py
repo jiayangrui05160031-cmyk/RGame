@@ -1215,7 +1215,8 @@ class RGameApp:
             desc = payload.get("desc", "")
             rect = pygame.Rect(self.world_rect.centerx - 250, y, 500, slot_h)
             draw_panel(self.screen, rect, border=T.ACCENT_3, fill=T.BG_PANEL, alpha=218, radius=12, outline=3)
-            icon = self._scaled_art(self.event_icon_sources.get(payload.get("id", "")), ("event", payload.get("id", "")), (slot_h - 8, slot_h - 8))
+            icon_id = payload.get("icon_id", payload.get("id", ""))
+            icon = self._scaled_art(self.event_icon_sources.get(icon_id), ("event", icon_id), (slot_h - 8, slot_h - 8))
             if icon is not None:
                 self.screen.blit(icon, icon.get_rect(center=(rect.x + 24, rect.centery)))
             draw_text_center(self.screen, text, pygame.Rect(rect.x + 48, rect.y + 4, rect.w - 60, slot_h - 24), color=color, font=self.font_small, outline=1, size=14)
@@ -2630,6 +2631,10 @@ class RGameApp:
         r = int(b.radius * self.scale)
         armed = self.engine.timer.run_time >= b.armed_at
         col = T.DANGER if armed else T.PICKUP_BOMB
+        if b.icon == "mine_pulse":
+            col = (255, 194, 72) if armed else (174, 124, 44)
+        elif b.icon == "rail_lock":
+            col = (255, 112, 128) if armed else (166, 66, 82)
         # 底层红色光晕（armed 时呼吸）
         glow_r = r * 2 if armed else r
         alpha = int(40 + 20 * math.sin(self.engine.timer.run_time * 8)) if armed else 28
@@ -3050,6 +3055,7 @@ class RGameApp:
                 "random_event",
                 {
                     "id": ev.get("id", ""),
+                    "icon_id": ev.get("icon_id", ev.get("id", "")),
                     "name": ev.get("name", "事件"),
                     "desc": ev.get("desc", ""),
                     "left": float(ev.get("left", 0.0)),
