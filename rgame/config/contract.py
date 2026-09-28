@@ -30,8 +30,8 @@ class ConfigBundle:
     stages: dict[str, dict] = field(default_factory=dict)
     achievements: dict[str, dict] = field(default_factory=dict)
     schema_version: str = "0.1.0"
-    config_version: str = "0.1.0"
-    formula_version: str = "0.1.0"
+    config_version: str = "0.5.0"
+    formula_version: str = "0.2.0"
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -141,6 +141,29 @@ def validate_stage(cfg: Mapping[str, Any], *, path: str = "stage") -> None:
     cs = cfg.get("clear_score")
     if cs is not None and cs <= 0:
         raise SchemaError(f"{path}.{sid}.clear_score 必须 > 0（无尽模式可为空）")
+    event = cfg.get("environment_event")
+    if event is None:
+        return
+    event_path = f"{path}.{sid}.environment_event"
+    for key in ("id", "name", "desc", "icon_id", "hazard_pattern", "hazard_icon"):
+        value = _require(event, event_path, key)
+        if not isinstance(value, str) or not value.strip():
+            raise SchemaError(f"{event_path}.{key} 必须是非空字符串")
+    if event["hazard_pattern"] not in ("mine_pulse", "rail_lock"):
+        raise SchemaError(f"{event_path}.hazard_pattern 不支持：{event['hazard_pattern']!r}")
+    for key in (
+        "duration", "spawn_interval", "hazard_radius", "hazard_damage", "hazard_arm_delay",
+    ):
+        value = _require(event, event_path, key)
+        if not isinstance(value, (int, float)) or value <= 0:
+            raise SchemaError(f"{event_path}.{key} 必须是正数")
+    spawn_count = _require(event, event_path, "spawn_count")
+    if not isinstance(spawn_count, int) or spawn_count <= 0:
+        raise SchemaError(f"{event_path}.spawn_count 必须是正整数")
+    if event["hazard_arm_delay"] >= 2.5:
+        raise SchemaError(f"{event_path}.hazard_arm_delay 必须小于炸弹引爆时长 2.5 秒")
+    if event["duration"] < 0.5 + event["spawn_interval"] * (spawn_count - 1) + 2.5:
+        raise SchemaError(f"{event_path}.duration 不足以容纳最后一枚危险标记的引爆时间")
 
 
 def validate_config_bundle(bundle: ConfigBundle) -> None:

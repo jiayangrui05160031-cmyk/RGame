@@ -39,7 +39,7 @@ from .core.time_keeper import TimeKeeper
 from .core.rng import make_rng_streams
 
 from .config.contract import ConfigBundle
-from .config.content import load_default_bundle
+from .config.content import TEMP_BUFF_EFFECTS, load_default_bundle
 
 from .combat.targeting import TargetCandidate
 from .combat.weapons import WeaponSystem, weapon_tick, WeaponPhase
@@ -56,7 +56,10 @@ from .player.movement import (
 )
 from .player.input_provider import InputAction, InputProvider
 
-from .drops.drops import DropSystem, Pickup, HazardBomb, create_drop_system, spawn_drops_on_enemy_defeated
+from .drops.drops import (
+    DROP_HARD_CAP, DropSystem, Pickup, HazardBomb,
+    create_drop_system, spawn_drops_on_enemy_defeated,
+)
 from .cards.cards import CardSystem, create_card_system
 from .level.scoring import ScoringSystem
 from .level.level_up import LevelSystem, create_level_system, xp_from_kill, xp_to_next
@@ -337,6 +340,8 @@ class Engine:
             entity_id="player",
             position=(960.0, 540.0),
         )
+        # 渲染层使用的外观选择，不参与战斗数值与存档进度。
+        self.player_skin_id = "vanguard"
         # 玩家 / 武器栈
         self.weapon_sys = WeaponSystem()
         preset = self.bundle.presets[self.context.preset_id]
@@ -423,6 +428,7 @@ class Engine:
         self.active_skill_left = 0.0
         self.active_skill_tick_left = 0.0
         self.active_skill_uses = 0
+        self.temp_buff_until: dict[str, float] = {}
         self.roll_start_pos: tuple[float, float] | None = None
         self.roll_target_pos: tuple[float, float] | None = None
         self.roll_duration = 0.0
@@ -441,6 +447,7 @@ class Engine:
         self.active_random_event: dict | None = None
         self.next_random_event_at = 24.0
         self.random_event_history: list[dict] = []
+        self.stage_environment_events_seen: set[int] = set()
         self.run_challenges: list[dict] = []
         self.last_challenge_notice: dict | None = None
         self.kill_streak = 0
@@ -741,6 +748,12 @@ class Engine:
                 if ev["tick"] <= 0:
                     ev["tick"] = 1.35
                     self._spawn_event_meteor()
+            elif ev.get("hazard_pattern"):
+                ev["tick"] = float(ev.get("tick", 0.0)) - dt
+                if ev["tick"] <= 0 and int(ev.get("spawned", 0)) < int(ev.get("spawn_count", 0)):
+                    self._spawn_stage_environment_hazard(ev)
+                    ev["spawned"] = int(ev.get("spawned", 0)) + 1
+                    ev["tick"] = float(ev.get("spawn_interval", 1.0))
             if ev["id"] == "rescue_beacon":
                 d = math.hypot(self.player.position[0] - ev["position"][0], self.player.position[1] - ev["position"][1])
                 if d < 250:
@@ -748,21 +761,38 @@ class Engine:
             if ev["left"] <= 0:
                 self._finish_random_event(ev)
                 self.active_random_event = None
-                self.next_random_event_at = self.timer.run_time + 32.0 + self.context.rng.get("drop_rng").range(20)
+                delay = (
+                    10.0 if self._has_pending_stage_environment_event()
+                    else 32.0 + self.context.rng.get("drop_rng").range(20)
+                )
+                self.next_random_event_at = self.timer.run_time + delay
             return
         if self.timer.run_time >= self.next_random_event_at:
             self._start_random_event()
 
+    def _has_pending_stage_environment_event(self) -> bool:
+        stage_index = int(self.context.stage_index)
+        stage = self.bundle.stages.get(f"stage_{stage_index}", {})
+        return bool(stage.get("environment_event")) and stage_index not in self.stage_environment_events_seen
+
     def _start_random_event(self) -> None:
         rng = self.context.rng.get("drop_rng")
-        event_id = list(RANDOM_EVENTS.keys())[rng.range(len(RANDOM_EVENTS))]
-        cfg = RANDOM_EVENTS[event_id]
+        unique_stage_event = self._has_pending_stage_environment_event()
+        if unique_stage_event:
+            stage = self.bundle.stages[f"stage_{self.context.stage_index}"]
+            cfg = stage["environment_event"]
+            event_id = cfg["id"]
+            self.stage_environment_events_seen.add(int(self.context.stage_index))
+        else:
+            event_id = list(RANDOM_EVENTS.keys())[rng.range(len(RANDOM_EVENTS))]
+            cfg = RANDOM_EVENTS[event_id]
         pos = (
             max(self.bounds.min_x + 80, min(self.bounds.max_x - 80, self.player.position[0] + rng.uniform(-420, 420))),
             max(self.bounds.min_y + 80, min(self.bounds.max_y - 80, self.player.position[1] + rng.uniform(-300, 300))),
         )
         ev = {
             "id": event_id,
+            "icon_id": cfg.get("icon_id", event_id),
             "name": cfg["name"],
             "desc": cfg["desc"],
             "left": float(cfg["duration"]),
@@ -770,6 +800,15 @@ class Engine:
             "position": pos,
             "tick": 0.5,
             "started_at": self.timer.run_time,
+            "unique_stage_event": unique_stage_event,
+            "hazard_pattern": cfg.get("hazard_pattern"),
+            "hazard_icon": cfg.get("hazard_icon", "bomb"),
+            "hazard_radius": float(cfg.get("hazard_radius", 0.0)),
+            "hazard_damage": float(cfg.get("hazard_damage", 0.0)),
+            "hazard_arm_delay": float(cfg.get("hazard_arm_delay", 0.35)),
+            "spawn_count": int(cfg.get("spawn_count", 0)),
+            "spawn_interval": float(cfg.get("spawn_interval", 1.35)),
+            "spawned": 0,
         }
         self.active_random_event = ev
         self.random_event_history.append({"id": event_id, "name": cfg["name"], "time": self.timer.run_time})
@@ -784,7 +823,12 @@ class Engine:
         elif event_id == "alien_relic":
             self._apply_random_relic_bonus()
         self.event_bus.publish(self._e("random_event_started", {
-            "id": event_id, "name": cfg["name"], "desc": cfg["desc"], "position": list(pos), "duration": cfg["duration"],
+            "id": event_id,
+            "icon_id": ev["icon_id"],
+            "name": cfg["name"],
+            "desc": cfg["desc"],
+            "position": list(pos),
+            "duration": cfg["duration"],
         }))
 
     def _finish_random_event(self, ev: dict) -> None:
@@ -792,7 +836,7 @@ class Engine:
         if ev["id"] == "rescue_beacon":
             success = float(ev.get("protected", 0.0)) >= ev["duration"] * 0.55
         if success:
-            if ev["id"] in ("rescue_beacon", "meteor_rain"):
+            if ev["id"] in ("rescue_beacon", "meteor_rain") or ev.get("unique_stage_event"):
                 self._grant_gold(24 + 10 * self.context.stage_index, source=f"event:{ev['id']}")
                 self.context.pending_cards += 1
             self.event_bus.publish(self._e("random_event_completed", {"id": ev["id"], "name": ev["name"]}))
@@ -817,6 +861,48 @@ class Engine:
             icon="meteor",
         )
         self.drop_sys.bombs.append(b)
+
+    def _spawn_stage_environment_hazard(self, event: dict) -> None:
+        if len(self.drop_sys.pickups) + len(self.drop_sys.bombs) >= DROP_HARD_CAP:
+            return
+        radius = max(1.0, float(event.get("hazard_radius", 90.0)))
+        px, py = self.player.position
+        wave = int(event.get("spawned", 0))
+        pattern = event.get("hazard_pattern")
+        if pattern == "mine_pulse":
+            angle = wave * 2.399963229728653 + self.context.rng.get("drop_rng").uniform(-0.2, 0.2)
+            distance = 45.0 + (wave % 2) * 24.0
+            px += math.cos(angle) * distance
+            py += math.sin(angle) * distance
+        elif pattern == "rail_lock":
+            lead = min(145.0, max(80.0, self.player.base_move_speed * 0.55))
+            px += math.cos(self.player.facing) * lead
+            py += math.sin(self.player.facing) * lead
+        else:
+            return
+        margin = radius + 16.0
+        position = (
+            max(self.bounds.min_x + margin, min(self.bounds.max_x - margin, px)),
+            max(self.bounds.min_y + margin, min(self.bounds.max_y - margin, py)),
+        )
+        now = self.timer.run_time
+        arm_delay = float(event.get("hazard_arm_delay", 0.45))
+        rng = self.context.rng.get("drop_rng")
+        bomb = HazardBomb(
+            entity_id=f"stage_{event['id']}_{int(now * 1000)}_{rng.range(999)}",
+            position=position,
+            radius=radius,
+            base_damage=float(event.get("hazard_damage", 20.0)),
+            spawn_time=now,
+            arm_delay=arm_delay,
+            armed_at=now + arm_delay,
+            lifetime=2.5,
+            icon=str(event.get("hazard_icon", "bomb")),
+        )
+        self.drop_sys.bombs.append(bomb)
+        self.event_bus.publish(self._e("environment_hazard_spawned", {
+            "event_id": event["id"], "position": list(position), "radius": radius,
+        }))
 
     def _grant_random_high_tier_weapon(self, *, source: str) -> None:
         cur = {w.weapon_id for w in self.weapon_sys.stack}
@@ -994,6 +1080,7 @@ class Engine:
         self.active_skill_left = 0.0
         self.active_skill_tick_left = 0.0
         self.active_skill_uses = 0
+        self.temp_buff_until.clear()
         self.roll_start_pos = None
         self.roll_target_pos = None
         self.roll_duration = 0.0
@@ -1011,6 +1098,7 @@ class Engine:
         self.active_random_event = None
         self.next_random_event_at = 24.0
         self.random_event_history = []
+        self.stage_environment_events_seen.clear()
         self.run_challenges = self._generate_run_challenges()
         self.last_challenge_notice = None
         self.kill_streak = 0
@@ -1049,6 +1137,8 @@ class Engine:
     def _move_player(self, dir_, dt: float) -> None:
         eff = effective_stats(self.player)
         sp = eff["move_speed"]
+        if self.temp_buff_until.get("speed+15%", 0.0) > self.timer.run_time:
+            sp *= TEMP_BUFF_EFFECTS["speed+15%"]["move_speed_multiplier"]
         # 低生命危急反击加速
         if self.player.growth.low_hp_move_pct and (self.player.current_hp / max(1.0, eff["max_hp"])) < self.player.growth.low_hp_threshold:
             sp = sp * (1.0 + self.player.growth.low_hp_move_pct)
@@ -1142,6 +1232,11 @@ class Engine:
             self.context.no_damage_max_run = max(self.context.no_damage_max_run, self.context.no_damage_time)
             self._submit_achievement_event("no_damage_time", {"seconds": self.context.no_damage_max_run})
         # 武器循环
+        overclock_active = self.temp_buff_until.get("aspd+15%", 0.0) > self.timer.run_time
+        for weapon in self.weapon_sys.stack:
+            weapon.temporary_attack_speed_multiplier = (
+                TEMP_BUFF_EFFECTS["aspd+15%"]["attack_speed_multiplier"] if overclock_active else 1.0
+            )
         crit_roll = self.context.rng.get("crit_rng").random() if "crit_rng" in self.context.rng.streams else self._crit_roll_default()
         candidates = self._build_candidates()
         # 武器 tick —— 投射物由 ProjectileSystem 接收
@@ -1481,6 +1576,33 @@ class Engine:
             if e.state == EnemyState.DEAD:
                 self.spawn_director.enemies.remove(e)
                 continue
+            # Boss movement and attacks belong to the dedicated skill state machine.
+            if e.is_super:
+                continue
+            if "support" in e.tags:
+                e.support_cooldown_left = max(0.0, e.support_cooldown_left - dt)
+                if e.support_cooldown_left <= 0 and e.state == EnemyState.SEEKING:
+                    allies = [
+                        ally for ally in self.spawn_director.enemies
+                        if ally is not e
+                        and not ally.is_super
+                        and ally.state not in (EnemyState.DYING, EnemyState.DEAD)
+                        and ally.current_hp < ally.max_hp * 0.82
+                        and math.dist(ally.position, e.position) <= e.support_range
+                    ]
+                    allies.sort(key=lambda ally: ally.current_hp / max(1.0, ally.max_hp))
+                    healed = []
+                    for ally in allies[:2]:
+                        amount = min(ally.max_hp - ally.current_hp, ally.max_hp * e.support_amount_pct)
+                        if amount > 0:
+                            ally.current_hp += amount
+                            healed.append(ally.entity_id)
+                    if healed:
+                        e.support_target_ids = tuple(healed)
+                        e.support_pulse_left = 0.68
+                        e.support_cooldown_left = e.support_cooldown
+                    else:
+                        e.support_cooldown_left = min(1.25, e.support_cooldown)
             def _projectile_emit(enemy_inst, target_pos, *, kind):
                 if kind == "bomb":
                     # 由 drop_sys 生成（位置玩家一侧 0.4）
@@ -1517,6 +1639,9 @@ class Engine:
                         "multinode_spreader": "enemy_shard",
                         "crystal_sniper": "enemy_rail",
                         "rail_turret": "enemy_rail",
+                        "rift_dancer": "enemy_phase",
+                        "void_mender": "enemy_support",
+                        "prism_artillery": "enemy_prism",
                     }.get(enemy_inst.config_id, "enemy_bullet"),
                 )
             step_enemy(
@@ -1681,7 +1806,7 @@ class Engine:
                 continue
             # 普通近战只有在前摇完成、攻击真正落下的那个短窗口才造成接触
             # 伤害；不能只要模型重叠就每 0.8 秒自动扣血。远程伤害由弹体结算。
-            if e.archetype in ("ranged", "spreader_ranged", "bomber"):
+            if e.is_super or e.projectile_speed > 0 or e.drops_bomb:
                 continue
             if e.last_attack_time <= 0 or self.timer.run_time - e.last_attack_time > max(0.08, dt * 2):
                 continue
@@ -1931,20 +2056,16 @@ class Engine:
             }))
 
     def _spawn_drops_for(self, enemy: Enemy, *, super_drop: bool = False) -> None:
-        if super_drop:
-            drop_tables = {"super_drops": self.bundle.drop_tables.get("super_drops", self.bundle.drop_tables["std_drops"])}
-            drop_tables = drop_tables | self.bundle.drop_tables
-        else:
-            drop_tables = self.bundle.drop_tables
         spawn_drops_on_enemy_defeated(
             self.drop_sys,
             run_context=self.context,
             enemy=enemy,
-            drop_tables=drop_tables,
+            drop_tables=self.bundle.drop_tables,
             player_pos=self.player.position,
             player_current_hp=self.player.current_hp,
             player_max_hp=effective_stats(self.player)["max_hp"],
             player_alive=self.player.status == PlayerStatus.ACTIVE,
+            table_id="super_drops" if super_drop else None,
         )
 
     def _step_drops(self, dt: float) -> None:
@@ -2030,6 +2151,13 @@ class Engine:
                     if kill_candidates >= ch["target"]:
                         self._complete_challenge(ch)
 
+    def _grant_temp_buff(self, buff: str | None, duration: float) -> bool:
+        if buff not in TEMP_BUFF_EFFECTS or duration <= 0:
+            return False
+        expires = max(self.timer.run_time, self.temp_buff_until.get(buff, 0.0)) + duration
+        self.temp_buff_until[buff] = expires
+        return True
+
     def _on_pickup_collected(self, p: Pickup) -> None:
         if p.kind == "xp_small" or p.kind == "xp_large" or p.kind == "xp":
             amount = max(1, int(round(float(p.amount) * self._active_event_multiplier("xp"))))
@@ -2055,8 +2183,20 @@ class Engine:
             amount = int(p.amount)
             self._grant_gold(amount, source="drop")
             self.event_bus.publish(self._e("pickup_collected", {"kind": p.kind, "amount": amount}))
+        elif p.kind == "skill_charge":
+            before = self.active_skill_cd_left
+            self.active_skill_cd_left = max(0.0, before - max(0.0, p.amount))
+            reduced = before - self.active_skill_cd_left
+            bonus_buff = p.buff if reduced <= 0 and self._grant_temp_buff(p.buff, p.buff_duration) else None
+            self.event_bus.publish(self._e("pickup_collected", {
+                "kind": p.kind, "amount": reduced, "bonus_buff": bonus_buff,
+            }))
         elif p.kind == "temp_buff":
-            self.event_bus.publish(self._e("pickup_collected", {"kind": p.kind, "buff": p.buff}))
+            applied = self._grant_temp_buff(p.buff, p.buff_duration)
+            self.event_bus.publish(self._e("pickup_collected", {
+                "kind": p.kind, "buff": p.buff if applied else None,
+                "duration": p.buff_duration if applied else 0.0,
+            }))
 
     def _check_stage_progression(self, action: InputAction) -> None:
         if self.context.mode == RunMode.ENDLESS:
@@ -2123,6 +2263,10 @@ class Engine:
         self.projectile_sys.reset()
         self.drop_sys.reset()
         self.super_director.reset()
+        if self.active_random_event and self.active_random_event.get("unique_stage_event"):
+            self.active_random_event = None
+        if self._has_pending_stage_environment_event():
+            self.next_random_event_at = self.timer.run_time + 10.0
         self.stage_lockdown = False
         self.stage_boss_defeated = False
         self.stage_boss_queued = False
@@ -2275,6 +2419,22 @@ class Engine:
                     self.player.growth.dmg_pct_bonus += float(eff["value"])
                     for weapon in self.weapon_sys.stack:
                         weapon.dmg_pct_bonus += float(eff["value"])
+            elif kind == "crit_chance_bonus":
+                value = float(eff["value"])
+                if cfg.get("applies_to_weapon") == "active":
+                    active.crit_chance_bonus += value
+                else:
+                    self.player.growth.crit_chance_bonus += value
+                    for weapon in self.weapon_sys.stack:
+                        weapon.crit_chance_bonus += value
+            elif kind == "crit_multiplier_bonus":
+                value = float(eff["value"])
+                if cfg.get("applies_to_weapon") == "active":
+                    active.crit_multiplier_bonus += value
+                else:
+                    self.player.growth.crit_multiplier_bonus += value
+                    for weapon in self.weapon_sys.stack:
+                        weapon.crit_multiplier_bonus += value
             elif kind == "aspd_pct":
                 if cfg.get("applies_to_weapon") == "active":
                     active.aspd_pct_bonus += float(eff["value"])
@@ -2390,12 +2550,14 @@ class Engine:
                 self.player.extra_max_hp_pct += float(eff["value"])
 
     def _inherit_global_weapon_growth(self, weapon) -> None:
-        """让抽卡后获得的新武器继承此前的全局攻击、攻速与射程卡。"""
+        """让新武器继承此前获得的全局攻击、攻速、射程与暴击成长。"""
         weapon.dmg_pct_bonus += self.player.growth.dmg_pct_bonus
         weapon.aspd_pct_bonus += self.player.growth.aspd_pct_bonus
         weapon.range_pct_bonus += self.player.growth.range_pct_bonus
         weapon.arc_deg_bonus += self.player.growth.arc_deg_bonus
         weapon.tol_deg_bonus += self.player.growth.tol_deg_bonus
+        weapon.crit_chance_bonus += self.player.growth.crit_chance_bonus
+        weapon.crit_multiplier_bonus += self.player.growth.crit_multiplier_bonus
 
     def _apply_passive_growth(self) -> None:
         # 每整分钟应用一次被动成长
@@ -2494,6 +2656,8 @@ class Engine:
         if sd.active is not None:
             se = sd.active
             e = se.enemy
+            if e.current_hp <= 0:
+                return
             if se.broken_left > 0:
                 se.broken_left = max(0.0, se.broken_left - dt)
             hp_ratio = e.current_hp / max(1.0, e.max_hp)
@@ -2505,22 +2669,24 @@ class Engine:
             if not se.enraged and e.current_hp <= e.max_hp * 0.5:
                 se.enraged = True
                 self.event_bus.publish(self._e("super_enraged", {"hp": e.current_hp, "max_hp": e.max_hp}))
-            if e.current_hp <= 0 and not e.defeated:
-                # 已在 _resolve_enemy_deaths 处理
-                pass
             if se.skill_windup_left <= 0 and se.skill_active_left <= 0 and se.skill_recovery_left <= 0:
                 # 选择下一个技能
-                chosen = sd.choose_next_skill(se)
+                chosen = sd.choose_next_skill(se, self.context.rng.get("super_rng"))
                 se.current_skill = chosen
                 se.skill_fired = False
                 se.skill_wave_index = 0
                 se.skill_wave_timer = 0.0
+                se.skill_aim_angle = math.atan2(
+                    self.player.position[1] - e.position[1],
+                    self.player.position[0] - e.position[0],
+                )
                 # 取基准 windup，但不低于 0.6
                 base_wu = 0.9 if chosen == SuperSkill.FIVE_FAN else \
                           1.1 if chosen == SuperSkill.THREE_BOMB else \
                           1.0 if chosen == SuperSkill.GAP_RING else \
                           0.8 if chosen == SuperSkill.LOCKED_DASH else \
-                          1.2
+                          1.18 if chosen == SuperSkill.TRI_LASER else \
+                          1.0 if chosen == SuperSkill.VOID_TIDAL else 1.2
                 se.skill_windup_left = max(0.45 if se.enraged else 0.6, base_wu * (0.68 if se.enraged else 1.0))
                 self.event_bus.publish(self._e("super_skill_started", {"skill": chosen.value, "windup": se.skill_windup_left}))
             elif se.skill_windup_left > 0:
@@ -2535,6 +2701,8 @@ class Engine:
                         SuperSkill.EXPAND_RING: 1.35,
                         SuperSkill.THREE_BOMB: 0.55,
                         SuperSkill.LOCKED_DASH: 0.72,
+                        SuperSkill.TRI_LASER: 0.90,
+                        SuperSkill.VOID_TIDAL: 1.18,
                     }.get(se.current_skill, 0.7)
                     self._fire_super_skill(se)
             elif se.skill_active_left > 0:
@@ -2545,13 +2713,15 @@ class Engine:
                          e.position[1] + dy * (980 if se.enraged else 820) * dt),
                         self.bounds, radius=e.collision_radius,
                     )
-                elif se.current_skill in (SuperSkill.FIVE_FAN, SuperSkill.GAP_RING, SuperSkill.EXPAND_RING):
+                elif se.current_skill in (SuperSkill.FIVE_FAN, SuperSkill.GAP_RING, SuperSkill.EXPAND_RING, SuperSkill.TRI_LASER, SuperSkill.VOID_TIDAL):
                     se.skill_wave_timer -= dt
                     if se.skill_wave_timer <= 0:
                         limits = {
                             SuperSkill.FIVE_FAN: 5 if se.enraged else 4,
                             SuperSkill.GAP_RING: 3 if se.enraged else 2,
                             SuperSkill.EXPAND_RING: 4 if se.enraged else 3,
+                            SuperSkill.TRI_LASER: 3 if se.enraged else 2,
+                            SuperSkill.VOID_TIDAL: 4 if se.enraged else 3,
                         }
                         if se.skill_wave_index < limits[se.current_skill]:
                             self._fire_super_skill_wave(se)
@@ -2562,18 +2732,32 @@ class Engine:
                     se.current_skill = None
             elif se.skill_recovery_left > 0:
                 se.skill_recovery_left = max(0.0, se.skill_recovery_left - dt)
+                if se.broken_left <= 0 and self.player.status == PlayerStatus.ACTIVE:
+                    dx = self.player.position[0] - e.position[0]
+                    dy = self.player.position[1] - e.position[1]
+                    distance = math.hypot(dx, dy)
+                    if distance > 260.0:
+                        travel = min(e.move_speed * dt, distance - 260.0)
+                        e.position = clamp_to_playable_bounds(
+                            (e.position[0] + dx / distance * travel,
+                             e.position[1] + dy / distance * travel),
+                            self.bounds, radius=e.collision_radius,
+                        )
             # 出生保护
             if se.spawn_protect_left > 0:
                 se.spawn_protect_left = max(0, se.spawn_protect_left - dt)
 
-    def _emit_super_bullet(self, e: Enemy, angle: float, *, speed: float, radius: float, damage_scale: float = 0.55) -> None:
+    def _emit_super_bullet(
+        self, e: Enemy, angle: float, *, speed: float, radius: float,
+        damage_scale: float = 0.55, visual_kind: str = "boss_orb",
+    ) -> None:
         target = (e.position[0] + math.cos(angle) * 500, e.position[1] + math.sin(angle) * 500)
         self.projectile_sys.emit(
             owner=e.entity_id, faction="enemy", origin=e.position, target_pos=target,
             damage=e.contact_damage * damage_scale, radius=radius, speed=speed,
             lifetime=3.2, penetration=1, crit_chance=0, crit_multiplier=1,
             crit_roll=0, weapon_id=None, source_id=e.entity_id, now=self.timer.run_time,
-            attack_angle=angle, visual_kind="boss_orb",
+            attack_angle=angle, visual_kind=visual_kind,
         )
 
     def _fire_super_skill(self, se: SuperEnemy) -> None:
@@ -2584,7 +2768,7 @@ class Engine:
         e = se.enemy
         aim = math.atan2(self.player.position[1] - e.position[1], self.player.position[0] - e.position[0])
         skill = se.current_skill
-        if skill in (SuperSkill.FIVE_FAN, SuperSkill.GAP_RING, SuperSkill.EXPAND_RING):
+        if skill in (SuperSkill.FIVE_FAN, SuperSkill.GAP_RING, SuperSkill.EXPAND_RING, SuperSkill.TRI_LASER, SuperSkill.VOID_TIDAL):
             self._fire_super_skill_wave(se)
         elif skill == SuperSkill.THREE_BOMB:
             for offset in (-150, 0, 150):
@@ -2640,6 +2824,40 @@ class Engine:
                     speed=(245 + wave * 28) * speed_mul, radius=10, damage_scale=0.42,
                 )
             se.skill_wave_timer = 0.27 if se.enraged else 0.38
+        elif se.current_skill == SuperSkill.TRI_LASER:
+            # Three predictable energy lanes. Each volley adds a slight rotation,
+            # leaving a readable dodge gap while preventing stationary camping.
+            spread = 24 if se.enraged else 17
+            count = 5 if se.enraged and se.phase >= 3 else 3
+            rotation = math.radians((wave - 0.5) * (7 if se.enraged else 5))
+            offsets = [
+                -spread + 2 * spread * i / max(1, count - 1)
+                for i in range(count)
+            ]
+            for offset in offsets:
+                self._emit_super_bullet(
+                    e, se.skill_aim_angle + rotation + math.radians(offset),
+                    speed=(600 if se.enraged else 520), radius=11,
+                    damage_scale=0.36 if se.enraged else 0.32,
+                    visual_kind="boss_lattice",
+                )
+            se.skill_wave_timer = 0.30 if se.enraged else 0.38
+        elif se.current_skill == SuperSkill.VOID_TIDAL:
+            # 弹幕围绕中心向外扩散，每波旋转安全缺口；预警角度与实弹采用同一算法。
+            count = 32 if se.enraged else 28
+            gap_center = se.skill_aim_angle + math.radians(wave * (18 if se.enraged else 24))
+            gap_half_angle = math.radians(24 if se.enraged else 29)
+            phase = wave * math.pi / count
+            for i in range(count):
+                angle = math.tau * i / count + phase
+                difference = (angle - gap_center + math.pi) % math.tau - math.pi
+                if abs(difference) <= gap_half_angle:
+                    continue
+                self._emit_super_bullet(
+                    e, angle, speed=(320 if se.enraged else 290) * speed_mul,
+                    radius=8, damage_scale=0.36, visual_kind="boss_tidal",
+                )
+            se.skill_wave_timer = 0.28 if se.enraged else 0.36
         se.skill_wave_index += 1
 
     # ========================================================================

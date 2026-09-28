@@ -2,7 +2,9 @@
 
 # rgame
 
-A top-down, single-screen roguelite for Windows, Android, and iOS, featuring automatic attacks, a three-weapon cycle, three-stage mode, and endless mode.
+A top-down, single-screen roguelite for Windows, Android, and iOS, featuring automatic attacks, a three-weapon cycle, a five-stage campaign, and endless mode.
+
+Combat uses a unified deep-space palette: midnight navy panels, ivory-and-steel armor across the player, thirteen enemy types, and the Void Warden, cyan energy cores, and restrained violet accents. New pickups, plasma shots, and hit feedback share the same material language.
 
 ## Overview
 
@@ -34,11 +36,14 @@ python -m pytest -q
 
 ## Gameplay
 
-1. Choose three-stage or endless mode from the main menu.
+1. Choose the five-stage campaign or endless mode from the main menu.
 2. Select one of three starting forms.
 3. Move with the keyboard, touch, or virtual joystick while attacks fire automatically.
 4. Cycle through three weapons and combine upgrades from level-up drafts.
 5. Defeat enemies, collect drops, unlock achievements, and preserve progress through saves.
+6. The fourth stage triggers Mine Resonance and the fifth triggers Orbital Lock; dodge the marked zones to finish each event for gold and a card draw.
+7. Draft cards now support precision, critical-hit, mobility, weapon, and defense builds; the Void Warden has seven attack patterns, including prism lanes and a rotating-gap void tide.
+8. New skirmisher, phase-flanking, repair-support, and prism-artillery enemies join progressively from stage three. Target repair units early and move through the Boss's marked safe gap.
 
 ## Project layout
 
@@ -67,6 +72,9 @@ CI performs the following checks:
 ## Known boundaries
 
 - Interactive rendering, physical input devices, and full audio behavior still require manual device testing.
+- The local v4 art pack adds a Mars campaign key illustration, four selectable hero skins, nine weapon icons, refreshed pickups, and four combat effects; its sprite order and generation prompts are documented in `rgame/assets/v4/ASSET_PROMPTS.md`.
+- pygame and Kivy share v3/v4 hero, enemy, and combat art plus v5 tactical pickup icons; pygame exposes the skin picker and richer melee effects, while Kivy uses the shared skins, weapon icons, pickups, and hit effects.
+- Ranged enemy telegraphs lock their shot location, tactical capacitors shorten active-skill cooldowns, and temporary speed/attack-speed pickups now apply their buffs. The v5 icon map and generation prompt are in `rgame/assets/v5/ASSET_PROMPTS.md`.
 - Android builds require a Linux/macOS Buildozer host.
 - iOS builds require macOS, Xcode, and kivy-ios.
 - Automated coverage currently emphasizes engine startup and packaging rather than a complete battle playthrough.

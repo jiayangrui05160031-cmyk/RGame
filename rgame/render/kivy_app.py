@@ -13,16 +13,19 @@ import math
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.image import Image as CoreImage
 from kivy.core.window import Window
-from kivy.graphics import Color, Ellipse, Rectangle, Line
+from kivy.graphics import Color, Ellipse, Rectangle, Line, PushMatrix, PopMatrix, Rotate
 from kivy.input.providers.mouse import MouseMotionEvent
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image as KivyImage
 from kivy.uix.label import Label
 from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.widget import Widget
@@ -45,31 +48,31 @@ SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 
 
-# ---- 颜色（与 pygame 端保持语义一致） ----
-COL_BG = (12 / 255, 14 / 255, 22 / 255, 1)
-COL_TEXT = (230 / 255, 230 / 255, 235 / 255, 1)
-COL_TEXT_DIM = (150 / 255, 150 / 255, 165 / 255, 1)
-COL_PLAYER = (90 / 255, 220 / 255, 255 / 255, 1)
-COL_PLAYER_CORE = (220 / 255, 250 / 255, 255 / 255, 1)
-COL_ENEMY = (220 / 255, 110 / 255, 130 / 255, 1)
-COL_ENEMY_ELITE = (240 / 255, 170 / 255, 90 / 255, 1)
-COL_ENEMY_SUPER = (1.0, 110 / 255, 1.0, 1)
-COL_PROJECTILE_PLAYER = (180 / 255, 230 / 255, 255 / 255, 1)
-COL_PROJECTILE_ENEMY = (1.0, 180 / 255, 80 / 255, 1)
-COL_PICKUP_XP = (130 / 255, 230 / 255, 170 / 255, 1)
-COL_BOMB = (1.0, 110 / 255, 90 / 255, 1)
-COL_BOMB_DANGER = (1.0, 70 / 255, 70 / 255, 1)
-COL_HP = (220 / 255, 80 / 255, 100 / 255, 1)
-COL_HP_BACK = (90 / 255, 30 / 255, 40 / 255, 1)
-COL_SHIELD = (110 / 255, 200 / 255, 255 / 255, 1)
-COL_SUPER_BAR = (1.0, 110 / 255, 1.0, 1)
-COL_HUD_BG = (20 / 255, 22 / 255, 32 / 255, 0.85)
-COL_HUD_BORDER = (90 / 255, 100 / 255, 130 / 255, 1)
-COL_BTN_INACTIVE = (60 / 255, 70 / 255, 90 / 255, 1)
-COL_BTN_ACTIVE = (90 / 255, 200 / 255, 255 / 255, 1)
-COL_CARD_SILVER = (200 / 255, 210 / 255, 220 / 255, 1)
-COL_CARD_GOLD = (240 / 255, 200 / 255, 110 / 255, 1)
-COL_CARD_COLOR = (240 / 255, 130 / 255, 250 / 255, 1)
+# ---- 颜色（与 pygame 端保持语义和深空色板一致） ----
+COL_BG = (6 / 255, 12 / 255, 26 / 255, 1)
+COL_TEXT = (229 / 255, 241 / 255, 255 / 255, 1)
+COL_TEXT_DIM = (140 / 255, 163 / 255, 190 / 255, 1)
+COL_PLAYER = (55 / 255, 220 / 255, 255 / 255, 1)
+COL_PLAYER_CORE = (232 / 255, 251 / 255, 255 / 255, 1)
+COL_ENEMY = (246 / 255, 94 / 255, 129 / 255, 1)
+COL_ENEMY_ELITE = (255 / 255, 190 / 255, 92 / 255, 1)
+COL_ENEMY_SUPER = (195 / 255, 110 / 255, 255 / 255, 1)
+COL_PROJECTILE_PLAYER = (85 / 255, 232 / 255, 255 / 255, 1)
+COL_PROJECTILE_ENEMY = (255 / 255, 151 / 255, 100 / 255, 1)
+COL_PICKUP_XP = (116 / 255, 243 / 255, 202 / 255, 1)
+COL_BOMB = (255 / 255, 104 / 255, 135 / 255, 1)
+COL_BOMB_DANGER = (255 / 255, 73 / 255, 117 / 255, 1)
+COL_HP = (255 / 255, 79 / 255, 115 / 255, 1)
+COL_HP_BACK = (68 / 255, 24 / 255, 46 / 255, 1)
+COL_SHIELD = (61 / 255, 203 / 255, 255 / 255, 1)
+COL_SUPER_BAR = (197 / 255, 132 / 255, 255 / 255, 1)
+COL_HUD_BG = (11 / 255, 22 / 255, 40 / 255, 0.88)
+COL_HUD_BORDER = (57 / 255, 221 / 255, 255 / 255, 1)
+COL_BTN_INACTIVE = (18 / 255, 36 / 255, 58 / 255, 1)
+COL_BTN_ACTIVE = (57 / 255, 221 / 255, 255 / 255, 1)
+COL_CARD_SILVER = (151 / 255, 207 / 255, 240 / 255, 1)
+COL_CARD_GOLD = (255 / 255, 201 / 255, 103 / 255, 1)
+COL_CARD_COLOR = (216 / 255, 125 / 255, 255 / 255, 1)
 
 
 def rarity_color(rarity: str):
@@ -89,8 +92,82 @@ class WorldCanvas(Widget):
     def __init__(self, engine: Engine, **kwargs):
         super().__init__(**kwargs)
         self.engine = engine
+        self._sprite_textures = {}
+        self._sprite_images = []
+        self._last_enemy_hp = {}
+        self._last_enemy_pos = {}
+        self._last_player_hp = engine.player.current_hp
+        self._feedback_bursts = []
+        self._load_v3_assets()
         self.bind(pos=self.redraw, size=self.redraw)
         self.last_redraw = 0.0
+
+    def _load_v3_assets(self) -> None:
+        asset_root = Path(__file__).resolve().parents[1] / "assets" / "v3"
+        v4_asset_root = Path(__file__).resolve().parents[1] / "assets" / "v4"
+        v5_asset_root = Path(__file__).resolve().parents[1] / "assets" / "v5"
+
+        def load_sheet(relative_path, columns, rows, names, *, root=asset_root):
+            path = root / relative_path
+            if not path.exists():
+                return
+            try:
+                image = CoreImage(str(path))
+                self._sprite_images.append(image)
+                texture = image.texture
+                cell_w, cell_h = texture.width // columns, texture.height // rows
+                for index, name in enumerate(names):
+                    row, col = divmod(index, columns)
+                    y = texture.height - (row + 1) * cell_h
+                    self._sprite_textures[name] = texture.get_region(col * cell_w, y, cell_w, cell_h)
+            except Exception:
+                return
+
+        def load_single(relative_path, name, *, root=asset_root):
+            path = root / relative_path
+            if not path.exists():
+                return
+            try:
+                image = CoreImage(str(path))
+                self._sprite_images.append(image)
+                self._sprite_textures[name] = image.texture
+            except Exception:
+                return
+
+        load_single("player/player_space_marine.png", "player")
+        load_single("boss/boss_void_warden.png", "boss")
+        load_sheet("enemies/enemy_roster_sheet.png", 3, 3, (
+            "spinner_chaser", "wingblade_sprinter", "shellguard_heavy",
+            "lantern_shooter", "crystal_sniper", "multinode_spreader",
+            "minelayer_bomber", "mine_leech", "rail_turret",
+        ))
+        load_sheet("enemies/enemy_specialists_sheet.png", 2, 2, (
+            "void_mender", "rift_dancer", "phase_stalker", "prism_artillery",
+        ))
+        load_sheet("pickups/pickup_roster_sheet.png", 2, 2, (
+            "pickup_xp", "pickup_heal", "pickup_shield_restore", "pickup_armor",
+        ))
+        load_sheet("effects/combat_effect_roster_sheet.png", 2, 2, (
+            "impact_spark", "plasma_burst", "plasma_bolt", "energy_slash",
+        ))
+        load_single("illustrations/main_menu_mars_keyart.png", "menu_illustration", root=v4_asset_root)
+        load_sheet("player/player_skin_roster_sheet.png", 2, 2, (
+            "player_skin_vanguard", "player_skin_comet", "player_skin_verdant", "player_skin_eclipse",
+        ), root=v4_asset_root)
+        load_sheet("weapons/weapon_icon_roster_sheet.png", 3, 3, (
+            "weapon_w_melee_blade", "weapon_w_rifle_precise", "weapon_w_shotgun_spread",
+            "weapon_w_orbiter_omni", "weapon_w_laser_charge", "weapon_w_arcane_orb",
+            "weapon_w_frost_lance", "weapon_w_starfall_bow", "weapon_w_void_pistols",
+        ), root=v4_asset_root)
+        load_sheet("pickups/pickup_roster_sheet.png", 2, 2, (
+            "pickup_xp", "pickup_heal", "pickup_shield_restore", "pickup_armor",
+        ), root=v4_asset_root)
+        load_sheet("pickups/tactical_pickup_roster_sheet.png", 2, 2, (
+            "pickup_skill_charge", "pickup_coin", "pickup_temp_buff", "pickup_hazard_bomb",
+        ), root=v5_asset_root)
+        load_sheet("effects/combat_vfx_roster_sheet.png", 2, 2, (
+            "impact_spark", "energy_slash", "plasma_burst", "thunder_explosion",
+        ), root=v4_asset_root)
 
     def redraw(self, *_a) -> None:
         self.canvas.clear()
@@ -115,10 +192,16 @@ class WorldCanvas(Widget):
 
     def _draw_world(self) -> None:
         e = self.engine
+        if e.state() == "MAIN_MENU" and self._sprite_textures.get("menu_illustration") is not None:
+            Color(1, 1, 1, 1)
+            Rectangle(texture=self._sprite_textures["menu_illustration"], pos=self.pos, size=self.size)
+            Color(2 / 255, 8 / 255, 18 / 255, 0.28)
+            Rectangle(pos=self.pos, size=self.size)
+            return
         if e.state() == "RUNNING" and e.timer.stage_time < 2.0:
             # 出生安全区
             (cx, cy), s = self._scale(960, 540)
-            Color(130 / 255, 110 / 255, 90 / 255, 1)
+            Color(57 / 255, 221 / 255, 255 / 255, 0.65)
             Line(circle=(cx, cy, 220 * s), width=1)
         # 危险炸弹
         for b in e.drop_sys.bombs:
@@ -126,31 +209,83 @@ class WorldCanvas(Widget):
         # 玩家
         self._draw_player()
         # 敌人
+        active_enemy_ids = set()
         for en in e.spawn_director.enemies:
+            active_enemy_ids.add(en.entity_id)
+            old_hp = self._last_enemy_hp.get(en.entity_id, en.current_hp)
+            if en.current_hp < old_hp - 0.01:
+                kind = "defeat" if en.current_hp <= 0 else "hit"
+                self._feedback_bursts.append({"pos": en.position, "kind": kind, "born": time.monotonic()})
+            self._last_enemy_hp[en.entity_id] = en.current_hp
+            self._last_enemy_pos[en.entity_id] = en.position
             self._draw_enemy(en)
+        for entity_id in list(self._last_enemy_hp):
+            if entity_id not in active_enemy_ids:
+                if self._last_enemy_hp[entity_id] > 0:
+                    self._feedback_bursts.append({"pos": self._last_enemy_pos.get(entity_id, (0, 0)), "kind": "defeat", "born": time.monotonic()})
+                self._last_enemy_hp.pop(entity_id, None)
+                self._last_enemy_pos.pop(entity_id, None)
         # 投射物
         for p in e.projectile_sys.projectiles:
             self._draw_projectile(p)
         # 掉落
         for p in e.drop_sys.pickups:
             self._draw_pickup(p)
+        if e.player.current_hp < self._last_player_hp - 0.01:
+            self._feedback_bursts.append({"pos": e.player.position, "kind": "player", "born": time.monotonic()})
+        self._last_player_hp = e.player.current_hp
+        self._draw_feedback()
         # 超级怪兽警告覆盖
         if e.state() == "SUPER_WARNING":
-            Color(1, 60 / 255, 80 / 255, 1)
+            Color(255 / 255, 73 / 255, 117 / 255, 1)
             Line(rectangle=(self.x, self.y, self.width, self.height), width=6)
             # 顶部红色警告条
-            Color(200 / 255, 60 / 255, 80 / 255, 0.5)
+            Color(102 / 255, 25 / 255, 63 / 255, 0.66)
             Rectangle(pos=(self.x, self.y + self.height - 80), size=(self.width, 80))
+
+    def _draw_feedback(self) -> None:
+        now = time.monotonic()
+        keep = []
+        textures = {"hit": "impact_spark", "defeat": "plasma_burst", "player": "energy_slash"}
+        lifetimes = {"hit": 0.26, "defeat": 0.42, "player": 0.34}
+        for burst in self._feedback_bursts:
+            age = now - burst["born"]
+            kind = burst["kind"]
+            ttl = lifetimes[kind]
+            if age >= ttl:
+                continue
+            keep.append(burst)
+            (x, y), s = self._scale(*burst["pos"])
+            ratio = age / ttl
+            alpha = max(0.0, 1.0 - ratio)
+            radius = (22 + 48 * ratio) * s
+            texture = self._sprite_textures.get(textures[kind])
+            if texture is not None:
+                PushMatrix()
+                Rotate(angle=(90 if kind == "player" else ratio * 24), origin=(x, y))
+                Color(1, 1, 1, alpha)
+                Rectangle(texture=texture, pos=(x - radius, y - radius), size=(radius * 2, radius * 2))
+                PopMatrix()
+            else:
+                Color(0.36, 0.88, 1.0, alpha)
+                Line(circle=(x, y, radius), width=max(1, 3 * s))
+        self._feedback_bursts = keep
 
     def _draw_player(self) -> None:
         e = self.engine
         (x, y), s = self._scale(*e.player.position)
         r = 22 * s
-        Color(*COL_PLAYER)
-        Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
-        Color(*COL_PLAYER_CORE)
-        cr = max(2, r * 0.4)
-        Ellipse(pos=(x - cr, y - cr), size=(cr * 2, cr * 2))
+        skin_id = getattr(e, "player_skin_id", "vanguard")
+        texture = self._sprite_textures.get(f"player_skin_{skin_id}") or self._sprite_textures.get("player")
+        if texture is not None:
+            Color(1, 1, 1, 1)
+            Rectangle(texture=texture, pos=(x - r * 1.9, y - r * 1.9), size=(r * 3.8, r * 3.8))
+        else:
+            Color(*COL_PLAYER)
+            Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+            Color(*COL_PLAYER_CORE)
+            cr = max(2, r * 0.4)
+            Ellipse(pos=(x - cr, y - cr), size=(cr * 2, cr * 2))
         if e.player.current_shield > 0 or e.player.growth.max_shield_extra > 0:
             Color(*COL_SHIELD)
             Line(circle=(x, y, r + 4), width=1)
@@ -180,8 +315,55 @@ class WorldCanvas(Widget):
         else:
             color = COL_ENEMY
             wr = r
-        Color(*color)
-        Ellipse(pos=(x - wr, y - wr), size=(wr * 2, wr * 2))
+        texture = self._sprite_textures.get("boss" if en.is_super else en.config_id)
+        if texture is not None:
+            sprite_r = max(wr * 1.55, (142 if en.is_super else 74) * s / 2)
+            Color(1, 1, 1, 1)
+            Rectangle(texture=texture, pos=(x - sprite_r, y - sprite_r), size=(sprite_r * 2, sprite_r * 2))
+        else:
+            Color(*color)
+            Ellipse(pos=(x - wr, y - wr), size=(wr * 2, wr * 2))
+        if en.config_id == "void_mender" and en.support_pulse_left > 0:
+            Color(0.30, 0.98, 0.88, min(0.9, en.support_pulse_left / 0.68))
+            for ally_id in en.support_target_ids:
+                ally = next((candidate for candidate in self.engine.spawn_director.enemies if candidate.entity_id == ally_id), None)
+                if ally is None or ally.state in (EnemyState.DYING, EnemyState.DEAD):
+                    continue
+                (ax, ay), _ = self._scale(*ally.position)
+                Line(points=[x, y, ax, ay], width=max(1, 3 * s))
+                Line(circle=(ax, ay, ally.collision_radius * s + 7 * s), width=max(1, 2 * s))
+        if en.phase_flash_left > 0:
+            Color(0.48, 0.76, 1.0, min(0.9, en.phase_flash_left / 0.5))
+            Line(circle=(x, y, wr + (0.5 - en.phase_flash_left) * 68 * s), width=max(1, 3 * s))
+        if en.state == EnemyState.WINDUP and en.attack_target_position is not None and en.config_id in ("crystal_sniper", "rail_turret", "prism_artillery"):
+            (tx, ty), _ = self._scale(*en.attack_target_position)
+            Color(0.35, 0.92, 1.0, 0.85)
+            Line(points=[x, y, tx, ty], width=max(1, 2 * s))
+            Line(circle=(tx, ty, max(10, 23 * s)), width=max(1, 2 * s))
+        if en.state == EnemyState.WINDUP and en.config_id == "prism_artillery":
+            facing = math.radians(en.facing)
+            Color(0.62, 0.82, 1, 0.82)
+            for offset in (-7, 0, 7):
+                angle = facing + math.radians(offset)
+                Line(points=[x, y, x + math.cos(angle) * en.attack_range * 0.45 * s,
+                             y + math.sin(angle) * en.attack_range * 0.45 * s], width=max(1, 2 * s))
+        if en.is_super:
+            super_enemy = self.engine.super_director.active
+            if super_enemy is not None and super_enemy.enemy is en and super_enemy.current_skill == SuperSkill.VOID_TIDAL:
+                if super_enemy.skill_windup_left > 0 or super_enemy.skill_active_left > 0:
+                    Color(0.16, 0.82, 1.0, 0.58 if super_enemy.skill_windup_left > 0 else 0.32)
+                    ring_r = 118 * s
+                    Line(circle=(x, y, ring_r), width=max(1, 2 * s))
+                    gap_center = super_enemy.skill_aim_angle + math.radians(max(0, super_enemy.skill_wave_index - 1) * (18 if super_enemy.enraged else 24))
+                    gap_half = math.radians(24 if super_enemy.enraged else 29)
+                    for i in range(32):
+                        angle = math.tau * i / 32
+                        diff = (angle - gap_center + math.pi) % math.tau - math.pi
+                        if abs(diff) <= gap_half:
+                            continue
+                        Line(points=[x + math.cos(angle) * ring_r, y + math.sin(angle) * ring_r,
+                                     x + math.cos(angle) * (ring_r + 10 * s),
+                                     y + math.sin(angle) * (ring_r + 10 * s)], width=max(1, 2 * s))
         # 血条
         if en.current_hp < en.max_hp:
             ratio = en.current_hp / max(1.0, en.max_hp)
@@ -195,16 +377,55 @@ class WorldCanvas(Widget):
     def _draw_projectile(self, p) -> None:
         (x, y), s = self._scale(*p.position)
         r = max(2, p.radius * s)
-        color = COL_PROJECTILE_PLAYER if p.faction == "player" else COL_PROJECTILE_ENEMY
-        Color(*color)
-        Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+        color = COL_PROJECTILE_PLAYER if p.faction == "player" else {
+            "enemy_phase": (0.46, 0.82, 1, 1),
+            "enemy_support": (0.34, 1, 0.82, 1),
+            "enemy_prism": (0.62, 0.70, 1, 1),
+            "boss_tidal": (0.35, 0.82, 1, 1),
+            "boss_lattice": (0.54, 0.9, 1, 1),
+        }.get(p.visual_kind, COL_PROJECTILE_ENEMY)
+        speed = math.hypot(p.velocity[0], p.velocity[1])
+        texture = self._sprite_textures.get("plasma_bolt") if speed >= 1 else None
+        if texture is not None:
+            angle = math.degrees(math.atan2(p.velocity[1], p.velocity[0]))
+            length, thickness = max(32 * s, r * 8), max(10 * s, r * 2.5)
+            PushMatrix()
+            Rotate(angle=angle, origin=(x, y))
+            Color(1, 1, 1, 0.95)
+            Rectangle(texture=texture, pos=(x - length / 2, y - thickness / 2), size=(length, thickness))
+            PopMatrix()
+        else:
+            Color(*color)
+            if speed >= 1:
+                ux, uy = p.velocity[0] / speed, p.velocity[1] / speed
+                Line(points=[x - ux * (24 * s), y - uy * (24 * s), x, y], width=max(2, r * 1.5))
+            Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+        Color(color[0], color[1], color[2], 0.22)
+        Ellipse(pos=(x - r * 2.8, y - r * 2.8), size=(r * 5.6, r * 5.6))
 
     def _draw_pickup(self, p) -> None:
         (x, y), s = self._scale(*p.position)
-        color = COL_PICKUP_XP if p.kind.startswith("xp") else (40 / 255, 220 / 255, 110 / 255, 1)
+        kind = "xp" if p.kind.startswith("xp") else p.kind
+        color = {
+            "xp": COL_PICKUP_XP,
+            "heal": (1, 0.32, 0.72, 1),
+            "shield_restore": (0.30, 0.82, 1, 1),
+            "armor": (1, 0.68, 0.20, 1),
+            "skill_charge": (0.25, 0.9, 1, 1),
+            "coin": (1, 0.78, 0.26, 1),
+            "temp_buff": (0.7, 0.45, 1, 1),
+        }.get(kind, COL_PICKUP_XP)
+        texture = self._sprite_textures.get(f"pickup_{kind}")
         Color(*color)
         r = max(2, 8 * s)
-        Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+        if texture is not None:
+            Color(1, 1, 1, 1)
+            Rectangle(texture=texture, pos=(x - r * 1.9, y - r * 1.9), size=(r * 3.8, r * 3.8))
+        else:
+            Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+        orbit = time.monotonic() * 2.5 + x * 0.01 + y * 0.01
+        Color(0.9, 0.98, 1, 0.9)
+        Ellipse(pos=(x + math.cos(orbit) * r * 1.6 - 2 * s, y + math.sin(orbit) * r * 1.6 - 2 * s), size=(4 * s, 4 * s))
 
     def _draw_bomb(self, b: HazardBomb) -> None:
         e = self.engine
@@ -214,6 +435,11 @@ class WorldCanvas(Widget):
         col = COL_BOMB_DANGER if armed else COL_BOMB
         Color(*col)
         Line(circle=(x, y, r), width=2)
+        mine = self._sprite_textures.get("pickup_hazard_bomb") if getattr(b, "faction", "enemy") == "enemy" else None
+        if mine is not None:
+            body = max(13, 24 * s)
+            Color(1, 1, 1, 1)
+            Rectangle(texture=mine, pos=(x - body, y - body), size=(body * 2, body * 2))
 
 
 # =============================================================================
@@ -310,8 +536,15 @@ class RGameKivyApp(App):
         self.hud_labels["weapon0"] = HUDLabel(text="", pos=(Window.width - 320, 30), font_size=12)
         self.hud_labels["weapon1"] = HUDLabel(text="", pos=(Window.width - 240, 30), font_size=12)
         self.hud_labels["weapon2"] = HUDLabel(text="", pos=(Window.width - 160, 30), font_size=12)
+        self.hud_labels["skill"] = HUDLabel(text="", pos=(Window.width - 320, 106), font_size=13, color=COL_PLAYER)
+        self.hud_labels["buffs"] = HUDLabel(text="", pos=(Window.width - 320, 132), font_size=12, color=COL_TEXT_DIM)
         for lbl in self.hud_labels.values():
             self.root_layout.add_widget(lbl)
+        self.weapon_icon_widgets = []
+        for _ in range(3):
+            icon = KivyImage(size_hint=(None, None), size=(30, 30), opacity=0)
+            self.root_layout.add_widget(icon)
+            self.weapon_icon_widgets.append(icon)
 
     def _refresh_hud(self) -> None:
         e = self.engine
@@ -344,15 +577,30 @@ class RGameKivyApp(App):
             self.hud_labels["super"].text = f"超级 {sd.progress}/100"
             self.hud_labels["super"].color = COL_TEXT_DIM
         self.hud_labels["level"].text = f"Lv.{e.level_sys.level}"
+        self.hud_labels["skill"].text = (
+            "技能就绪" if e.active_skill_cd_left <= 0 else f"技能冷却 {e.active_skill_cd_left:.1f}s"
+        )
+        active_buffs = []
+        for buff_id, label in (("speed+15%", "疾行"), ("aspd+15%", "超频")):
+            remaining = e.temp_buff_until.get(buff_id, 0.0) - e.timer.run_time
+            if remaining > 0:
+                active_buffs.append(f"{label} {remaining:.0f}s")
+        self.hud_labels["buffs"].text = " · ".join(active_buffs)
         # 武器栏
         for i, lbl_key in enumerate(("weapon0", "weapon1", "weapon2")):
+            icon = self.weapon_icon_widgets[i]
+            icon.pos = (Window.width - 354 + i * 80, 56)
+            icon.size = (30, 30)
             if i < len(e.weapon_sys.stack):
                 w = e.weapon_sys.stack[i]
                 active = "★" if i == e.weapon_sys.active_index else " "
                 self.hud_labels[lbl_key].text = f"{active}{w.config.get('display_name', w.weapon_id)[:6]}"
                 self.hud_labels[lbl_key].color = COL_BTN_ACTIVE if i == e.weapon_sys.active_index else COL_TEXT
+                icon.texture = self.world._sprite_textures.get(f"weapon_{w.weapon_id}")
+                icon.opacity = 1 if icon.texture is not None else 0
             else:
                 self.hud_labels[lbl_key].text = ""
+                icon.opacity = 0
         # 暂停/警告/选关
         if e.state() == "PAUSED":
             self.hud_labels["stage"].text = "已暂停"

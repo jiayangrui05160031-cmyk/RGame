@@ -42,6 +42,12 @@ from . import theme as T
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FONT_NAME = "microsoftyaheiui"
+PLAYER_SKIN_OPTIONS = (
+    ("vanguard", "苍穹先锋"),
+    ("comet", "赤焰彗星"),
+    ("verdant", "星海守望"),
+    ("eclipse", "蚀月潜行者"),
+)
 
 
 # 安全区（无系统数据时使用保守值）
@@ -138,6 +144,7 @@ def rarity_color(rarity: str) -> tuple[int, int, int]:
         "铜": T.CARD_BRONZE,
         "银": T.CARD_SILVER,
         "金": T.CARD_GOLD,
+        "彩": T.CARD_COLOR,
     }.get(rarity, T.CARD_BRONZE)
 
 
@@ -190,7 +197,7 @@ def clear_ui_cache() -> None:
 
 def draw_text(surf, text, pos, *, size=20, color=COL_TEXT, font=None,
               outline: int = 0, outline_color=COL_TEXT_OUTLINE):
-    """绘制文字。outline>0 时画一层黑色描边（元气骑士风必备）。"""
+    """绘制舰载 HUD 文字；描边只用于浮在战斗画面上的标签。"""
     if font is None:
         font = get_ui_font(size)
     img = font.render(str(text), True, color)
@@ -250,7 +257,7 @@ def clear_glow_cache() -> None:
 
 
 def draw_panel(surf, rect, *, border=COL_HUD_BORDER, fill=COL_PANEL, alpha=COL_PANEL_ALPHA, radius=14, outline=3):
-    """元气骑士风面板：4px 黑色描边 + 高对比填充。
+    """斜切角深空面板：缓存表面只生成一次，战斗 HUD 每帧轻量 blit。
 
     面板本身只由尺寸和样式决定，缓存后每帧只需 blit，避免战斗 HUD
     持续分配大量短生命周期 Surface。
@@ -259,33 +266,44 @@ def draw_panel(surf, rect, *, border=COL_HUD_BORDER, fill=COL_PANEL, alpha=COL_P
     panel = _panel_cache.get(key)
     if panel is None:
         panel = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+        width, height = panel.get_size()
+        cut = max(4, min(int(radius), width // 7, height // 4))
+
+        def corners(inset: int, bevel: int):
+            left, top = inset, inset
+            right, bottom = width - inset, height - inset
+            bevel = max(2, min(bevel, max(2, (right - left) // 4), max(2, (bottom - top) // 3)))
+            return [
+                (left + bevel, top), (right - bevel, top), (right, top + bevel),
+                (right, bottom - bevel), (right - bevel, bottom), (left + bevel, bottom),
+                (left, bottom - bevel), (left, top + bevel),
+            ]
+
         if outline > 0:
-            pygame.draw.rect(panel, border, (0, 0, rect.w, rect.h), border_radius=radius)
-            inner = (outline, outline, max(1, rect.w - 2 * outline), max(1, rect.h - 2 * outline))
-            pygame.draw.rect(panel, (*fill, alpha), inner, border_radius=max(2, radius - outline))
+            pygame.draw.polygon(panel, border, corners(0, cut))
+            pygame.draw.polygon(panel, (*fill, alpha), corners(outline, max(2, cut - outline)))
         else:
-            pygame.draw.rect(panel, (*fill, alpha), (0, 0, rect.w, rect.h), border_radius=radius)
-        pygame.draw.line(panel, (*T.ACCENT, 80), (outline + 6, outline + 2), (rect.w - outline - 6, outline + 2), 1)
+            pygame.draw.polygon(panel, (*fill, alpha), corners(0, cut))
+        pygame.draw.line(panel, (*T.ACCENT, min(112, alpha // 2)),
+                         (cut + outline + 5, outline + 1), (width - cut - outline - 5, outline + 1), 1)
+        mark = min(12, max(4, width // 18))
+        pygame.draw.line(panel, (*T.ACCENT_2, min(145, alpha)), (2, cut + 4), (2, cut + 4 + mark), 2)
+        pygame.draw.line(panel, (*T.ACCENT_3, min(145, alpha)), (width - 3, height - cut - 4), (width - 3, height - cut - 4 - mark), 2)
         _panel_cache[key] = panel
     surf.blit(panel, rect.topleft)
 
 
 def draw_button(surf, rect, label, *, font, active=False, accent=COL_ACCENT, accent_fill=None):
-    """元气骑士风按钮：胶囊 + 3px 黑色描边 + 高饱和色。
+    """斜切角舰载按钮：焦点状态使用主题色面板与清晰文字。
 
-    旧实现：active 状态下还把白字 + 黑描边叠在浅底板上 → 文字"重影"（子报告 + 用户截图）。
-    新实现：active 用浅色填充 + 深色文字（无描边），inactive 仍用白字 + 黑描边。
+    亮色焦点面板使用深色字，其他状态使用高对比浅色字。
     """
     if accent_fill is None:
         accent_fill = accent
-    border = COL_HUD_BORDER
-    pygame.draw.rect(surf, border, rect, border_radius=12)
-    inner = rect.inflate(-4, -4)
     fill = accent_fill if active else COL_BTN_INACTIVE
-    pygame.draw.rect(surf, fill, inner, border_radius=10)
-    if active:
-        pygame.draw.rect(surf, (*T.TEXT_PRIMARY, 32), inner.inflate(-8, -8), border_radius=8)
-    text_color = T.TEXT_DARK if active else T.TEXT_PRIMARY
+    draw_panel(surf, rect, border=accent if active else T.ACCENT,
+               fill=fill, alpha=246 if active else 228, radius=12, outline=3)
+    text_color = T.TEXT_DARK if active and sum(fill[:3]) > 470 else T.TEXT_PRIMARY
     draw_text_center(surf, label, rect, color=text_color, font=font,
                      outline=0 if active else 2, size=max(14, font.get_height()))
 
@@ -434,16 +452,23 @@ class RGameApp:
         # 视觉资源
         self.assets_dir = Path(__file__).resolve().parents[1] / "assets"
         self.v2_assets_dir = self.assets_dir / "v2"
+        self.v3_assets_dir = self.assets_dir / "v3"
+        self.v4_assets_dir = self.assets_dir / "v4"
+        self.v5_assets_dir = self.assets_dir / "v5"
+        self.menu_illustration_source: pygame.Surface | None = None
+        self.menu_illustration_scaled: pygame.Surface | None = None
+        self.menu_illustration_scaled_key: tuple[int, int] | None = None
         self.bg_source: pygame.Surface | None = None
         self.stage_bg_sources: dict[int, pygame.Surface] = {}
         self.bg_scaled: pygame.Surface | None = None
         self.bg_scaled_key: tuple[int, int, int] | None = None
-        # 主角贴图（元气骑士风骑士）
+        # 主角贴图（深空装甲飞行员）
         self.player_sprite_source: pygame.Surface | None = None
         self.player_sprite_frames: list[pygame.Surface] = []
         self.player_attack_frames: list[pygame.Surface] = []
         self.player_sprite_scaled: pygame.Surface | None = None
         self.player_sprite_size: tuple[int, int] | None = None
+        self.player_skin_sources: dict[str, pygame.Surface] = {}
         # 敌人贴图缓存：config_id -> 原始 Surface
         self.enemy_sprite_sources: dict[str, pygame.Surface] = {}
         self.enemy_sprite_frames: dict[str, list[pygame.Surface]] = {}
@@ -461,7 +486,6 @@ class RGameApp:
         self.boss_ui_sources: dict[str, pygame.Surface] = {}
         self.effect_sources: dict[str, pygame.Surface] = {}
         self.pickup_icon_sources: dict[str, pygame.Surface] = {}
-        self.card_frame_sources: dict[str, pygame.Surface] = {}
         self._feedback_sounds: dict[str, pygame.mixer.Sound] = {}
         self._audio_ready = False
         self._music_track: str | None = None
@@ -536,6 +560,9 @@ class RGameApp:
         self.font_big = get_ui_font(48)
 
     def _load_assets(self) -> None:
+        self.menu_illustration_source = self._load_rgba_asset(
+            self.v4_assets_dir / "illustrations" / "main_menu_mars_keyart.png"
+        )
         bg_path = self.v2_assets_dir / "backgrounds" / "arena_bg_stage1-v2.png"
         if not bg_path.exists():
             bg_path = self.assets_dir / "arena_bg.png"
@@ -582,6 +609,30 @@ class RGameApp:
                 frames = self._load_sheet_frames(form_path, rows=2)
                 if frames:
                     self.player_form_sheets[form_id] = frames
+        # 新主角模型优先用于所有形态，旧精灵表继续作为缺图时的兼容回退。
+        space_marine = self._load_rgba_asset(self.v3_assets_dir / "player" / "player_space_marine.png")
+        if space_marine is not None:
+            self.player_sprite_source = space_marine
+            self.player_sprite_frames = []
+            self.player_attack_frames = []
+            self.player_form_sheets = {"nimble": [space_marine], "heavy": [space_marine]}
+        skin_frames = self._load_sheet_frames(
+            self.v4_assets_dir / "player" / "player_skin_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(skin_frames) == len(PLAYER_SKIN_OPTIONS):
+            self.player_skin_sources = {
+                skin_id: artwork
+                for (skin_id, _label), artwork in zip(PLAYER_SKIN_OPTIONS, skin_frames)
+            }
+            self.engine.player_skin_id = (
+                self.engine.player_skin_id
+                if self.engine.player_skin_id in self.player_skin_sources
+                else PLAYER_SKIN_OPTIONS[0][0]
+            )
+            self.player_sprite_source = skin_frames[0]
+            self.player_sprite_frames = []
+            self.player_attack_frames = []
+            self.player_form_sheets = {"nimble": [skin_frames[0]], "heavy": [skin_frames[0]]}
         # 普通敌人：新精灵表优先，旧素材作为回退。
         for cfg_id, rel in T.ENEMY_SPRITE_PATHS.items():
             sheet_path = self.v2_assets_dir / "enemies" / f"{cfg_id}_sheet.png"
@@ -615,6 +666,31 @@ class RGameApp:
                 loaded = self._load_clean_asset(dmg_path)
                 if loaded is not None:
                     self.enemy_damage_sprites[cfg_id][dmg_level] = loaded
+        # 全套敌人使用同一张深空装甲资产表；旧时间/破损贴图只作为加载失败时的回退。
+        enemy_order = (
+            "spinner_chaser", "wingblade_sprinter", "shellguard_heavy",
+            "lantern_shooter", "crystal_sniper", "multinode_spreader",
+            "minelayer_bomber", "mine_leech", "rail_turret",
+        )
+        enemy_roster = self._load_sheet_frames(
+            self.assets_dir / T.ENEMY_ROSTER_SHEET_PATH, columns=3, rows=3,
+        )
+        if len(enemy_roster) == len(enemy_order):
+            for config_id, artwork in zip(enemy_order, enemy_roster):
+                self.enemy_sprite_sources[config_id] = artwork
+                self.enemy_sprite_frames.pop(config_id, None)
+                self.enemy_tier_sprites.setdefault(config_id, {}).clear()
+                self.enemy_damage_sprites.setdefault(config_id, {}).clear()
+        specialist_order = ("void_mender", "rift_dancer", "phase_stalker", "prism_artillery")
+        specialist_roster = self._load_sheet_frames(
+            self.v3_assets_dir / "enemies" / "enemy_specialists_sheet.png", columns=2, rows=2,
+        )
+        if len(specialist_roster) == len(specialist_order):
+            for config_id, artwork in zip(specialist_order, specialist_roster):
+                self.enemy_sprite_sources[config_id] = artwork
+                self.enemy_sprite_frames.pop(config_id, None)
+                self.enemy_tier_sprites.setdefault(config_id, {}).clear()
+                self.enemy_damage_sprites.setdefault(config_id, {}).clear()
         # 超级 BOSS：普通与狂暴贴图分离，可由半血阶段切换。
         self.super_sprite_frames = self._load_sheet_frames(
             self.v2_assets_dir / "boss" / "super_boss_normal_sheet.png", rows=2
@@ -630,6 +706,12 @@ class RGameApp:
                 self.super_sprite_source = pygame.image.load(str(boss_path)).convert_alpha()
             except pygame.error:
                 self.super_sprite_source = None
+        # 新 Boss 以同一套海军蓝、象牙白与青色发光核心呈现；缺图时保留旧动画表。
+        void_warden = self._load_rgba_asset(self.v3_assets_dir / "boss" / "boss_void_warden.png")
+        if void_warden is not None:
+            self.super_sprite_source = void_warden
+            self.super_sprite_frames = []
+            self.super_enraged_frames = []
 
         weapon_names = {
             "w_melee_blade": "weapon_quick_cleaver.png",
@@ -660,6 +742,16 @@ class RGameApp:
             loaded = self._load_clean_asset(self.v2_assets_dir / "weapons" / filename)
             if loaded is not None:
                 self.weapon_icon_sources[weapon_id] = loaded
+        weapon_roster = self._load_sheet_frames(
+            self.v4_assets_dir / "weapons" / "weapon_icon_roster_sheet.png", columns=3, rows=3,
+        )
+        if len(weapon_roster) == 9:
+            for weapon_id, artwork in zip((
+                "w_melee_blade", "w_rifle_precise", "w_shotgun_spread",
+                "w_orbiter_omni", "w_laser_charge", "w_arcane_orb",
+                "w_frost_lance", "w_starfall_bow", "w_void_pistols",
+            ), weapon_roster):
+                self.weapon_icon_sources[weapon_id] = artwork
         for equipment_id in EQUIPMENT_ITEMS:
             loaded = self._load_clean_asset(self.v2_assets_dir / "equipment" / f"{equipment_id}.png")
             if loaded is not None:
@@ -687,12 +779,41 @@ class RGameApp:
             loaded = self._load_clean_asset(self.v2_assets_dir / "pickups" / filename)
             if loaded is not None:
                 self.pickup_icon_sources[kind] = loaded
-        for rarity, filename in {
-            "铜": "card_frame_bronze.png", "银": "card_frame_silver.png", "金": "card_frame_gold.png",
-        }.items():
-            loaded = self._load_clean_asset(self.v2_assets_dir / "cards" / filename)
-            if loaded is not None:
-                self.card_frame_sources[rarity] = loaded
+        pickup_roster = self._load_sheet_frames(
+            self.v3_assets_dir / "pickups" / "pickup_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(pickup_roster) == 4:
+            for kind, artwork in zip(("xp", "heal", "shield_restore", "armor"), pickup_roster):
+                self.pickup_icon_sources[kind] = artwork
+        pickup_roster_v4 = self._load_sheet_frames(
+            self.v4_assets_dir / "pickups" / "pickup_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(pickup_roster_v4) == 4:
+            for kind, artwork in zip(("xp", "heal", "shield_restore", "armor"), pickup_roster_v4):
+                self.pickup_icon_sources[kind] = artwork
+        tactical_pickups = self._load_sheet_frames(
+            self.v5_assets_dir / "pickups" / "tactical_pickup_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(tactical_pickups) == 4:
+            for kind, artwork in zip(("skill_charge", "coin", "temp_buff", "hazard_bomb"), tactical_pickups):
+                self.pickup_icon_sources[kind] = artwork
+        combat_effects = self._load_sheet_frames(
+            self.v3_assets_dir / "effects" / "combat_effect_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(combat_effects) == 4:
+            for effect_id, artwork in zip(
+                ("impact_spark", "plasma_burst", "plasma_bolt", "energy_slash"), combat_effects,
+            ):
+                self.effect_sources[effect_id] = artwork
+        combat_effects_v4 = self._load_sheet_frames(
+            self.v4_assets_dir / "effects" / "combat_vfx_roster_sheet.png", columns=2, rows=2,
+        )
+        if len(combat_effects_v4) == 4:
+            for effect_id, artwork in zip(
+                ("impact_spark", "energy_slash", "plasma_burst", "thunder_explosion"),
+                combat_effects_v4,
+            ):
+                self.effect_sources[effect_id] = artwork
         for combo_id in ("steam_burst", "thunder_chain", "corrupt_blood", "focused_lattice", "earth_shock"):
             loaded = self._load_rgba_asset(self.v2_assets_dir / "icons" / "combos" / f"icon_combo_{combo_id}.png")
             if loaded is not None:
@@ -825,6 +946,19 @@ class RGameApp:
         self._sprite_scale_cache[cache_key] = scaled
         return scaled
 
+    def _fit_character_art(self, source: pygame.Surface, size: tuple[int, int]) -> pygame.Surface:
+        """等比缩放角色立绘并置于透明画布，避免新竖版模型被压扁。"""
+        width, height = max(8, int(size[0])), max(8, int(size[1]))
+        ratio = min(width / max(1, source.get_width()), height / max(1, source.get_height()))
+        fitted_size = (
+            max(1, int(source.get_width() * ratio)),
+            max(1, int(source.get_height() * ratio)),
+        )
+        fitted = pygame.transform.smoothscale(source, fitted_size)
+        canvas = pygame.Surface((width, height), pygame.SRCALPHA)
+        canvas.blit(fitted, fitted.get_rect(center=(width // 2, height // 2)))
+        return canvas
+
     def _blit_effect(
         self,
         effect_id: str,
@@ -846,6 +980,41 @@ class RGameApp:
         self.screen.blit(img, img.get_rect(center=center))
         return True
 
+    def _player_skin_panel_rect(self, screen_width: int | None = None) -> pygame.Rect:
+        width = self.screen_w if screen_width is None else screen_width
+        panel_w = min(300, max(216, int(width * 0.15625)))
+        picker_right = width // 2 + 585
+        panel_x = min(width - panel_w - 24, picker_right + 24)
+        return pygame.Rect(max(12, panel_x), 132, panel_w, 404)
+
+    def _player_skin_controls(self, panel: pygame.Rect) -> tuple[pygame.Rect, pygame.Rect]:
+        return (
+            pygame.Rect(panel.x + 18, panel.y + 290, 48, 42),
+            pygame.Rect(panel.right - 66, panel.y + 290, 48, 42),
+        )
+
+    def _cycle_player_skin(self, step: int = 1) -> None:
+        if not self.player_skin_sources:
+            return
+        skin_ids = [skin_id for skin_id, _label in PLAYER_SKIN_OPTIONS if skin_id in self.player_skin_sources]
+        if not skin_ids:
+            return
+        current = getattr(self.engine, "player_skin_id", skin_ids[0])
+        index = skin_ids.index(current) if current in skin_ids else 0
+        self.engine.player_skin_id = skin_ids[(index + step) % len(skin_ids)]
+
+    def _player_skin_preview(self, skin_id: str, size: tuple[int, int]) -> pygame.Surface | None:
+        source = self.player_skin_sources.get(skin_id)
+        if source is None:
+            return None
+        key = ("__player_skin_preview__", skin_id, size)
+        cached = self._sprite_scale_cache.get(key)
+        if cached is not None:
+            return cached
+        fitted = self._fit_character_art(source, size)
+        self._sprite_scale_cache[key] = fitted
+        return fitted
+
     def _background_surface(self) -> pygame.Surface | None:
         stage = 5 if self.engine.context.mode == "endless" else min(5, self.engine.context.stage_index)
         source = self.stage_bg_sources.get(stage, self.bg_source)
@@ -860,15 +1029,22 @@ class RGameApp:
 
     def _player_sprite(self, size: int, frame_index: int = 0, *, attacking: bool = False) -> pygame.Surface | None:
         frames = self.player_attack_frames if attacking and self.player_attack_frames else self.player_sprite_frames
-        source = frames[frame_index % len(frames)] if frames else self.player_sprite_source
+        skin_id = getattr(self.engine, "player_skin_id", "vanguard")
+        source = self.player_skin_sources.get(skin_id)
+        if source is None:
+            source = frames[frame_index % len(frames)] if frames else self.player_sprite_source
         if source is None:
             return None
         target = (max(8, size), max(8, size))
-        cache_key = ("__player_attack__" if attacking else "__player__", frame_index % max(1, len(frames)), target)
+        cache_key = (
+            "__player_skin__", skin_id, target,
+        ) if skin_id in self.player_skin_sources else (
+            "__player_attack__" if attacking else "__player__", frame_index % max(1, len(frames)), target,
+        )
         cached = self._sprite_scale_cache.get(cache_key)
         if cached is not None:
             return cached
-        scaled = pygame.transform.smoothscale(source, target)
+        scaled = self._fit_character_art(source, target)
         self._sprite_scale_cache[cache_key] = scaled
         return scaled
 
@@ -892,7 +1068,7 @@ class RGameApp:
         cached = self._sprite_scale_cache.get(key)
         if cached is not None:
             return cached
-        s = pygame.transform.smoothscale(src, target)
+        s = self._fit_character_art(src, target)
         self._sprite_scale_cache[key] = s
         return s
 
@@ -906,7 +1082,7 @@ class RGameApp:
         cached = self._sprite_scale_cache.get(key)
         if cached is not None:
             return cached
-        s = pygame.transform.smoothscale(source, target)
+        s = self._fit_character_art(source, target)
         self._sprite_scale_cache[key] = s
         return s
 
@@ -1215,7 +1391,8 @@ class RGameApp:
             desc = payload.get("desc", "")
             rect = pygame.Rect(self.world_rect.centerx - 250, y, 500, slot_h)
             draw_panel(self.screen, rect, border=T.ACCENT_3, fill=T.BG_PANEL, alpha=218, radius=12, outline=3)
-            icon = self._scaled_art(self.event_icon_sources.get(payload.get("id", "")), ("event", payload.get("id", "")), (slot_h - 8, slot_h - 8))
+            icon_id = payload.get("icon_id", payload.get("id", ""))
+            icon = self._scaled_art(self.event_icon_sources.get(icon_id), ("event", icon_id), (slot_h - 8, slot_h - 8))
             if icon is not None:
                 self.screen.blit(icon, icon.get_rect(center=(rect.x + 24, rect.centery)))
             draw_text_center(self.screen, text, pygame.Rect(rect.x + 48, rect.y + 4, rect.w - 60, slot_h - 24), color=color, font=self.font_small, outline=1, size=14)
@@ -1533,6 +1710,14 @@ class RGameApp:
                     return
         elif st == "PRESET_SELECT":
             cw, ch = self.screen_w, self.screen_h
+            skin_panel = self._player_skin_panel_rect(cw)
+            skin_prev, skin_next = self._player_skin_controls(skin_panel)
+            if skin_prev.collidepoint(x, y):
+                self._cycle_player_skin(-1)
+                return
+            if skin_next.collidepoint(x, y) or skin_panel.collidepoint(x, y):
+                self._cycle_player_skin(1)
+                return
             for i, label in enumerate(["武器槽 1", "武器槽 2", "装备槽 1", "装备槽 2", "开始游戏"]):
                 btn = pygame.Rect(cw // 2 - 565, 190 + i * 66, 310, 54)
                 if btn.collidepoint(x, y):
@@ -1600,8 +1785,10 @@ class RGameApp:
                 self.keyboard.request_select(0)
                 return
         elif st == "MAIN_MENU":
+            menu_w = min(520, max(440, int(self.screen_w * 0.29)))
+            menu_x = 36
             for i in range(6):
-                btn = pygame.Rect(self.screen_w // 2 - 160, 324 + i * 62, 320, 54)
+                btn = pygame.Rect(menu_x + 24, 326 + i * 62, menu_w - 48, 54)
                 if btn.collidepoint(x, y):
                     self.selection_state["main"] = i
                     if i == 1:
@@ -1632,6 +1819,9 @@ class RGameApp:
             "LEVEL_UP": "level",
             "STAGE_CLEAR": "level",
         }[st]
+        if st == "PRESET_SELECT" and key == pygame.K_v:
+            self._cycle_player_skin()
+            return True
         if st == "PRESET_SELECT" and key in (pygame.K_a, pygame.K_LEFT):
             if self.selection_state["preset"] == 4:
                 return True
@@ -1928,6 +2118,20 @@ class RGameApp:
             color = burst["color"]
             radius = int((10 + burst["radius"] * t) * self.scale)
             alpha = int(190 * (1.0 - t))
+            effect_id = {"hit": "impact_spark", "defeat": "plasma_burst", "player": "energy_slash"}.get(burst.get("kind"))
+            if effect_id is not None:
+                effect_size = max(24, int((20 + burst["radius"] * 0.8) * (0.72 + 0.48 * t) * self.scale))
+                art = self._scaled_art(self.effect_sources.get(effect_id), (effect_id, "combat-feedback"), (effect_size, effect_size))
+                if art is not None:
+                    art = art.copy()
+                    art.set_alpha(max(0, min(255, alpha + (35 if burst.get("kind") == "defeat" else 0))))
+                    angle = math.sin(self.engine.timer.run_time * 3 + x * 0.01) * 12
+                    if burst.get("kind") == "player":
+                        angle += 90
+                    art = pygame.transform.rotate(art, angle)
+                    self.screen.blit(art, art.get_rect(center=(x, y)))
+                    keep_bursts.append(burst)
+                    continue
             if burst.get("kind") == "defeat":
                 pygame.draw.circle(self.screen, (*color, alpha), (x, y), max(4, radius), width=max(2, int(4 * self.scale)))
                 pygame.draw.circle(self.screen, (*COL_ACCENT, alpha // 2), (x, y), max(2, radius // 2), width=1)
@@ -2027,11 +2231,11 @@ class RGameApp:
             pygame.draw.circle(self.screen, (18, 40, 64), (cx, cy), int(150 * self.scale), width=1)
         stage = self.engine.context.stage_index if self.engine.context.mode != "endless" else 5
         stage_tints = {
-            1: (20, 70, 105, 42),
-            2: (145, 48, 20, 58),
-            3: (105, 25, 145, 66),
-            4: (20, 120, 78, 62),
-            5: (120, 35, 180, 64),
+            1: (26, 106, 157, 32),
+            2: (119, 77, 38, 34),
+            3: (105, 69, 174, 38),
+            4: (22, 137, 145, 34),
+            5: (113, 53, 167, 40),
         }
         tint_key = ("stage_tint", stage, self.world_rect.w, self.world_rect.h)
         tint = self._scene_overlay_cache.get(tint_key)
@@ -2040,12 +2244,15 @@ class RGameApp:
             tint.fill(stage_tints.get(stage, stage_tints[1]))
             self._scene_overlay_cache[tint_key] = tint
         self.screen.blit(tint, self.world_rect.topleft)
-        # 静态场景装饰：只在边缘出现，提供场景辨识度且不遮挡战斗中心。
-        prop_layout = (
-            ("rock", 0.08, 0.18, 82), ("crate", 0.90, 0.24, 92),
-            ("pipe", 0.12, 0.78, 104), ("antenna", 0.86, 0.75, 108),
-            ("pillar", 0.52, 0.10, 96),
-        )
+        # 每个区域用不同的边缘地标，中央战斗空间保持畅通。
+        prop_layouts = {
+            1: (("rock", 0.08, 0.18, 82), ("crate", 0.90, 0.24, 88), ("pipe", 0.12, 0.79, 98), ("antenna", 0.86, 0.76, 104), ("mars_crystal", 0.52, 0.10, 72)),
+            2: (("rock", 0.08, 0.18, 84), ("broken_turret", 0.90, 0.24, 96), ("pipe", 0.12, 0.79, 96), ("energy_barrel", 0.86, 0.76, 82), ("crate", 0.52, 0.10, 78)),
+            3: (("pillar", 0.08, 0.18, 94), ("ancient_glyph", 0.90, 0.24, 90), ("dead_robot", 0.12, 0.79, 98), ("pillar", 0.86, 0.76, 100), ("broken_turret", 0.52, 0.10, 84)),
+            4: (("mars_crystal", 0.08, 0.18, 84), ("energy_barrel", 0.90, 0.24, 82), ("pipe", 0.12, 0.79, 104), ("satellite_dish", 0.86, 0.76, 100), ("crate", 0.52, 0.10, 78)),
+            5: (("satellite_dish", 0.08, 0.18, 100), ("broken_turret", 0.90, 0.24, 96), ("dead_robot", 0.12, 0.79, 96), ("ancient_glyph", 0.86, 0.76, 88), ("pillar", 0.52, 0.10, 82)),
+        }
+        prop_layout = prop_layouts.get(stage, prop_layouts[1])
         for prop_id, px, py, size in prop_layout:
             prop = self._scaled_art(self.prop_sources.get(prop_id), ("prop", prop_id), (int(size * self.scale), int(size * self.scale)))
             if prop is not None:
@@ -2067,7 +2274,28 @@ class RGameApp:
             step = max(55, int(110 * self.scale))
             offset = int(self.engine.timer.run_time * 22) % step
             for x in range(self.world_rect.x - step + offset, self.world_rect.right, step):
-                pygame.draw.line(self.screen, (55, 185, 125), (x, self.world_rect.y), (x, self.world_rect.bottom), 1)
+                pygame.draw.line(self.screen, (39, 154, 177), (x, self.world_rect.y), (x, self.world_rect.bottom), 1)
+        elif stage == 5:
+            for i in range(5):
+                rr = int((210 + i * 74) * self.scale)
+                rect = pygame.Rect(cx - rr, cy - rr, rr * 2, rr * 2)
+                start = self.engine.timer.run_time * (0.12 if i % 2 else -0.10) + i * 0.7
+                pygame.draw.arc(self.screen, (96, 71, 176), rect, start, start + math.pi * 0.72, max(1, int(self.scale * 2)))
+        # 低对比的能量尘埃，让舞台保有深空感而不压住敌弹预警。
+        dust_colors = {
+            1: (38, 126, 166), 2: (149, 108, 63), 3: (125, 99, 187),
+            4: (52, 148, 159), 5: (141, 86, 189),
+        }
+        dust = dust_colors.get(stage, dust_colors[1])
+        drift = self.engine.timer.run_time * 0.0015
+        for i in range(42):
+            fx = ((i * 193 + 47) % 997) / 997.0
+            fy = ((i * 317 + 103) % 991) / 991.0
+            px = self.world_rect.x + int(((fx + drift * (1 + i % 3)) % 1.0) * self.world_rect.w)
+            py = self.world_rect.y + int(fy * self.world_rect.h)
+            pulse = 0.42 + 0.58 * (0.5 + 0.5 * math.sin(self.engine.timer.run_time * (1.4 + i % 4 * 0.23) + i))
+            color = tuple(int(channel * pulse * 0.68) for channel in dust)
+            pygame.draw.circle(self.screen, color, (px, py), 1 if i % 5 else max(1, int(self.scale * 2)))
         # 半透遮罩（让贴图更突出）
         veil_key = ("world_veil", self.world_rect.w, self.world_rect.h)
         veil = self._scene_overlay_cache.get(veil_key)
@@ -2076,8 +2304,15 @@ class RGameApp:
             veil.fill((4, 8, 16, 105))
             self._scene_overlay_cache[veil_key] = veil
         self.screen.blit(veil, self.world_rect.topleft)
-        # 世界边界：粗黑描边
-        pygame.draw.rect(self.screen, COL_HUD_BORDER, self.world_rect, width=3)
+        # 世界边界改为舰桥舷窗式能量导轨。
+        pygame.draw.rect(self.screen, T.BLACK_OUTLINE, self.world_rect, width=max(3, int(5 * self.scale)))
+        pygame.draw.rect(self.screen, T.ACCENT, self.world_rect, width=max(1, int(2 * self.scale)))
+        corner = max(12, int(34 * self.scale))
+        for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
+            ox = self.world_rect.left if sx > 0 else self.world_rect.right
+            oy = self.world_rect.top if sy > 0 else self.world_rect.bottom
+            pygame.draw.line(self.screen, T.ACCENT_3, (ox, oy + sy * corner), (ox, oy), max(1, int(2 * self.scale)))
+            pygame.draw.line(self.screen, T.ACCENT_3, (ox, oy), (ox + sx * corner, oy), max(1, int(2 * self.scale)))
         # 出生圈（2 秒内）
         if self.engine.timer.stage_time < 2.0:
             cx, cy = self._world_to_screen((960, 540))
@@ -2089,6 +2324,20 @@ class RGameApp:
         r = int(26 * self.scale)
         attack_age = self.engine.timer.run_time - self.engine.last_player_attack_time
         attacking = 0 <= attack_age <= (0.24 if self.engine.last_player_attack_is_melee else 0.13)
+        active_weapon = self.engine.weapon_sys.active
+        weapon_phase = getattr(getattr(active_weapon, "phase", None), "value", "")
+        windup_progress = 0.0
+        if active_weapon is not None and weapon_phase == "windup":
+            windup_duration = max(0.04, float(active_weapon.config.get("windup_time", 0.10)))
+            windup_progress = max(0.0, min(1.0, 1.0 - active_weapon.windup_left / windup_duration))
+        fire_recoil = max(0.0, 1.0 - attack_age / 0.22) if attack_age >= 0 else 0.0
+        visual_facing = self.engine.player.facing
+        if active_weapon is not None and weapon_phase == "windup" and active_weapon.target:
+            aimed = next((e for e in self.engine.spawn_director.enemies if e.entity_id == active_weapon.target), None)
+            if aimed is not None:
+                dx = aimed.position[0] - self.engine.player.position[0]
+                dy = aimed.position[1] - self.engine.player.position[1]
+                visual_facing = math.atan2(dy, dx)
         # 近战先显示非指向性的锁定扇区/圆形范围，再画挥砍亮边。
         if attacking and self.engine.last_player_attack_is_melee:
             range_px = int(self.engine.last_player_attack_range * self.scale)
@@ -2115,6 +2364,19 @@ class RGameApp:
                 arc_deg=arc_deg * (0.86 if heavy else 0.72),
                 radius=int(range_px * (0.70 + progress * 0.16)),
                 color=T.ACCENT_3 if heavy else T.ACCENT, width=max(3, int((8 if heavy else 5) * self.scale)),
+            )
+            slash_forward = int(range_px * 0.38)
+            slash_center = (
+                x + int(math.cos(self.engine.last_player_attack_angle) * slash_forward),
+                y + int(math.sin(self.engine.last_player_attack_angle) * slash_forward),
+            )
+            slash_size = max(72, int(range_px * 1.85))
+            self._blit_effect(
+                "energy_slash", slash_center,
+                (slash_size, max(64, int(range_px * 1.38))),
+                angle=-math.degrees(self.engine.last_player_attack_angle) - 90.0,
+                alpha=max(0, int(228 * (1.0 - progress))),
+                key_extra=("melee", self.engine.last_player_attack_weapon),
             )
         if getattr(self.engine, "roll_left", 0.0) > 0 and self.engine.roll_start_pos and self.engine.roll_target_pos:
             sx, sy = self._world_to_screen(self.engine.roll_start_pos)
@@ -2165,7 +2427,7 @@ class RGameApp:
         # 1. 底层辉光
         glow = make_glow(max(14, r * 3), COL_PLAYER, 78)
         self.screen.blit(glow, glow.get_rect(center=(x, y)))
-        # 2. 角色贴图（元气骑士风骑士，带朝向旋转）
+        # 2. 空间装甲角色立绘，根据朝向旋转并加入轻微漂浮。
         sprite_size = int(T.SPRITE_BASE_PX * self.scale)
         prev = getattr(self, "_last_player_draw_pos", self.engine.player.position)
         moved = math.hypot(self.engine.player.position[0] - prev[0], self.engine.player.position[1] - prev[1]) > 0.1
@@ -2175,18 +2437,19 @@ class RGameApp:
         if attacking:
             frame_index = int(attack_age / (0.24 if self.engine.last_player_attack_is_melee else 0.13) * 4)
         sprite = self._player_sprite(sprite_size, frame_index, attacking=attacking)
+        rig_center = (x, y)
         if sprite is not None:
             # 朝向：玩家 facing 字段（弧度，0=+x）；pygame 的 rotate 是逆时针°，需要 -90 偏置
-            deg = -math.degrees(self.engine.player.facing) - 90.0
+            deg = -math.degrees(visual_facing) - 90.0
             bob = int(math.sin(self.engine.timer.run_time * anim_rate) * (3 if moved else 1.5) * self.scale)
             sway = math.sin(self.engine.timer.run_time * anim_rate * 0.5) * (3.0 if moved else 0.8)
             deg += sway
             if attacking and self.engine.last_player_attack_is_melee:
                 progress = min(1.0, attack_age / 0.24)
                 deg += 28.0 - 56.0 * progress
-            recoil = 0
-            if attacking and not self.engine.last_player_attack_is_melee:
-                recoil = int((1.0 - attack_age / 0.13) * 9 * self.scale)
+            elif not self.engine.last_player_attack_is_melee:
+                deg += 2.5 * windup_progress - 7.5 * fire_recoil
+            recoil = int((4.0 * windup_progress + 14.0 * fire_recoil) * self.scale)
             rotated = pygame.transform.rotate(sprite, deg)
             stage = self.engine.context.stage_index
             if stage == 2:
@@ -2195,15 +2458,31 @@ class RGameApp:
                 rotated.fill((18, 0, 32, 0), special_flags=pygame.BLEND_RGBA_ADD)
             rect = rotated.get_rect(center=(x, y + bob))
             if recoil:
-                rect.x -= int(math.cos(self.engine.last_player_attack_angle) * recoil)
-                rect.y -= int(math.sin(self.engine.last_player_attack_angle) * recoil)
+                push_angle = visual_facing if windup_progress > 0 else self.engine.last_player_attack_angle
+                rect.x -= int(math.cos(push_angle) * recoil)
+                rect.y -= int(math.sin(push_angle) * recoil)
             self.screen.blit(rotated, rect)
+            rig_center = rect.center
         else:
             # fallback：圆 + 核（保留旧几何，黑色描边版）
             pygame.draw.circle(self.screen, COL_HUD_BORDER, (x, y), r + 2)
             pygame.draw.circle(self.screen, COL_PLAYER_TRIM, (x, y), r)
             pygame.draw.circle(self.screen, COL_PLAYER, (x, y), r - 3)
             pygame.draw.circle(self.screen, COL_PLAYER_CORE, (x, y), max(3, int(r * 0.42)))
+        if active_weapon is not None and active_weapon.weapon_id != "w_ember_drone":
+            rig_melee = bool(active_weapon.config.get("is_melee"))
+            rig_angle = visual_facing
+            rig_pose = -0.72 * windup_progress + 0.90 * fire_recoil
+            if rig_melee and attacking:
+                melee_progress = min(1.0, attack_age / 0.24)
+                rig_angle = self.engine.last_player_attack_angle
+                rig_pose = 0.95 - 1.9 * melee_progress
+            self._draw_action_rig(
+                rig_center, rig_angle, max(12, int(30 * self.scale)),
+                T.ACCENT_3 if rig_melee else T.ACCENT,
+                melee=rig_melee, pose=rig_pose, recoil=fire_recoil,
+                side=-1,
+            )
         # 熔核无人机：使用真实武器图标作为场上伴随单位，而不是只在 HUD 槽位显示。
         if self.engine.weapon_sys.active and self.engine.weapon_sys.active.weapon_id == "w_ember_drone":
             orbit_r = int(82 * self.scale)
@@ -2249,7 +2528,7 @@ class RGameApp:
         ratio = eff.current_hp / max(1.0, maxhp)
         ratio = max(0.0, min(1.0, ratio))
         back = pygame.Rect(x - w // 2, y, w, h)
-        # 元气骑士风 HP 条：3px 黑色描边 + 高饱和红色
+        # 舰载生命条：深色槽体、语义色填充与细亮边。
         pygame.draw.rect(self.screen, COL_HUD_BORDER, back.inflate(4, 2), border_radius=5)
         pygame.draw.rect(self.screen, COL_HP_BACK, back, border_radius=4)
         pygame.draw.rect(self.screen, COL_HP, (back.x, back.y, int(w * ratio), h), border_radius=4)
@@ -2262,9 +2541,90 @@ class RGameApp:
                 pygame.draw.rect(self.screen, COL_HUD_BORDER, shield_rect.inflate(4, 0), border_radius=3)
                 pygame.draw.rect(self.screen, T.SHIELD_FILL, (back.x, y - 4, int(w * sr), 4), border_radius=2)
 
+    def _draw_action_rig(
+        self,
+        center: tuple[int, int],
+        angle: float,
+        size: int,
+        tint: tuple[int, int, int],
+        *,
+        melee: bool,
+        pose: float = 0.0,
+        recoil: float = 0.0,
+        side: int = 1,
+    ) -> None:
+        """Draw an animated arm, weapon and muzzle assembly over a single-pose model."""
+        size = max(10, int(size))
+        px, py = -math.sin(angle), math.cos(angle)
+        fx, fy = math.cos(angle), math.sin(angle)
+        span = size * (0.66 + 0.12 * recoil)
+        shoulder = (center[0] + int(px * side * size * 0.34), center[1] + int(py * side * size * 0.34))
+        elbow = (
+            center[0] + int(fx * span * 0.40 + px * side * size * (0.43 - pose * 0.18)),
+            center[1] + int(fy * span * 0.40 + py * side * size * (0.43 - pose * 0.18)),
+        )
+        hand = (
+            center[0] + int(fx * span + px * side * size * (0.18 - pose * 0.28)),
+            center[1] + int(fy * span + py * side * size * (0.18 - pose * 0.28)),
+        )
+        edge = max(4, int(size * 0.22))
+        core = max(2, int(size * 0.11))
+        pygame.draw.line(self.screen, T.BLACK_OUTLINE, shoulder, elbow, edge + 3)
+        pygame.draw.line(self.screen, tint, shoulder, elbow, edge)
+        pygame.draw.line(self.screen, T.BLACK_OUTLINE, elbow, hand, edge + 3)
+        pygame.draw.line(self.screen, (190, 225, 240), elbow, hand, edge)
+        pygame.draw.circle(self.screen, T.BLACK_OUTLINE, shoulder, edge // 2 + 2)
+        pygame.draw.circle(self.screen, tint, shoulder, edge // 2)
+        pygame.draw.circle(self.screen, T.BLACK_OUTLINE, elbow, edge // 2 + 2)
+        pygame.draw.circle(self.screen, (210, 235, 245), elbow, edge // 2)
+
+        if melee:
+            swing = pose * 0.58
+            blade_angle = angle + swing
+            bx, by = math.cos(blade_angle), math.sin(blade_angle)
+            blade_len = int(size * (1.20 + 0.34 * recoil))
+            tip = (hand[0] + int(bx * blade_len), hand[1] + int(by * blade_len))
+            pygame.draw.line(self.screen, T.BLACK_OUTLINE, hand, tip, max(6, int(size * 0.25)))
+            pygame.draw.line(self.screen, tint, hand, tip, max(3, int(size * 0.14)))
+            guard_a = (hand[0] + int(px * size * 0.22), hand[1] + int(py * size * 0.22))
+            guard_b = (hand[0] - int(px * size * 0.22), hand[1] - int(py * size * 0.22))
+            pygame.draw.line(self.screen, T.BLACK_OUTLINE, guard_a, guard_b, max(4, int(size * 0.16)))
+            pygame.draw.line(self.screen, (225, 245, 255), guard_a, guard_b, max(2, int(size * 0.08)))
+        else:
+            barrel = max(9, int(size * (0.78 + 0.22 * recoil)))
+            bx = hand[0] + int(fx * barrel)
+            by = hand[1] + int(fy * barrel)
+            half = max(3, int(size * 0.12))
+            q1 = (hand[0] + int(px * half), hand[1] + int(py * half))
+            q2 = (hand[0] - int(px * half), hand[1] - int(py * half))
+            q3 = (bx - int(px * half * 0.72), by - int(py * half * 0.72))
+            q4 = (bx + int(px * half * 0.72), by + int(py * half * 0.72))
+            pygame.draw.polygon(self.screen, T.BLACK_OUTLINE, [q1, q2, q3, q4])
+            body = (max(0, tint[0] - 20), max(0, tint[1] - 20), max(0, tint[2] - 20))
+            pygame.draw.polygon(self.screen, body, [
+                (hand[0] + int(px * half * 0.65), hand[1] + int(py * half * 0.65)),
+                (hand[0] - int(px * half * 0.65), hand[1] - int(py * half * 0.65)),
+                (bx - int(px * half * 0.38), by - int(py * half * 0.38)),
+                (bx + int(px * half * 0.38), by + int(py * half * 0.38)),
+            ])
+            pygame.draw.line(self.screen, (215, 245, 255), hand, (bx, by), core)
+            pygame.draw.circle(self.screen, T.TEXT_PRIMARY, (bx, by), max(2, int(size * 0.13 + recoil * 2)))
+            pygame.draw.circle(self.screen, tint, (bx, by), max(1, int(size * 0.07 + recoil)))
+
     def _draw_enemy(self, e) -> None:
         x, y = self._world_to_screen(e.position)
         r = int(e.collision_radius * self.scale)
+        enemy_attack_age = self.engine.timer.run_time - e.last_attack_time
+        windup_progress = 0.0
+        if e.state.value == "windup":
+            windup_progress = max(0.0, min(1.0, 1.0 - e.state_left / max(0.04, e.windup_time)))
+        strike_progress = max(0.0, 1.0 - enemy_attack_age / 0.26) if e.last_attack_time > 0 else 0.0
+        if e.state.value == "attacking":
+            strike_progress = max(strike_progress, 1.0 - e.state_left / 0.06)
+        hit_left = self._enemy_hit_flash.get(e.entity_id, 0.0)
+        hit_progress = math.sin(math.pi * max(0.0, min(1.0, 1.0 - hit_left / 0.14))) if hit_left > 0 else 0.0
+        facing_rad = math.radians(e.facing)
+        forward = (math.cos(facing_rad), math.sin(facing_rad))
         if e.is_super:
             color = COL_ENEMY_SUPER
             wr = r + 14
@@ -2274,6 +2634,10 @@ class RGameApp:
         else:
             color = COL_ENEMY
             wr = r
+        # 预备时重心后撤，出手时向前压；受击短暂弹开，动作幅度随模型尺寸变化。
+        pose_shift = wr * (0.34 * strike_progress - 0.22 * windup_progress - 0.18 * hit_progress)
+        pose_x = x + int(forward[0] * pose_shift)
+        pose_y = y + int(forward[1] * pose_shift)
         # 1. 底层辉光
         glow = make_glow(max(10, wr * 2), color, 58 if not e.is_super else 100)
         self.screen.blit(glow, glow.get_rect(center=(x, y)))
@@ -2289,8 +2653,9 @@ class RGameApp:
             # BOSS 要在第一眼就与普通怪拉开体量差，视觉尺寸远大于碰撞体。
             se = self.engine.super_director.active
             boss_frame = int(self.engine.timer.run_time * 6) % 4
+            pulse = 1.0 + (0.028 if se is not None and se.enraged else 0.014) * math.sin(self.engine.timer.run_time * 4.2)
             sprite = self._super_sprite(
-                int(max(280 * self.scale, wr * 5.8)), boss_frame,
+                int(max(280 * self.scale, wr * 5.8) * pulse), boss_frame,
                 enraged=bool(se is not None and se.enemy is e and se.enraged),
             )
         else:
@@ -2300,6 +2665,8 @@ class RGameApp:
                 "lantern_shooter": 82, "multinode_spreader": 88,
                 "shellguard_heavy": 96, "minelayer_bomber": 86,
                 "crystal_sniper": 104, "mine_leech": 78, "rail_turret": 112,
+                "rift_dancer": 78, "phase_stalker": 82, "void_mender": 90,
+                "prism_artillery": 112,
             }.get(e.config_id, 74)
             enemy_frame = int(self.engine.timer.run_time * (11 if e.state.value == "seeking" else 7)) % 4
             if e.state.value in ("windup", "attacking"):
@@ -2311,16 +2678,45 @@ class RGameApp:
         if sprite is not None:
             # 敌人的 facing 本来就是角度；旧代码再次 degrees() 导致旋转乱跳。
             deg = -e.facing - 90.0
+            if not e.is_super:
+                # 新版敌人是单帧模型，用轻微悬浮和姿态摆动补回精灵表动画的生命感。
+                phase_seed = (sum((i + 1) * ord(ch) for i, ch in enumerate(e.entity_id)) % 997) / 997 * math.tau
+                seeking = e.state.value == "seeking"
+                idle_phase = self.engine.timer.run_time * (4.2 if seeking else 2.4) + phase_seed
+                bob = math.sin(idle_phase) * min(2.4, max(0.6, wr * 0.035)) if seeking else 0.0
+                deg += math.sin(idle_phase * 0.53) * (1.35 if seeking else 0.35)
+                deg += -8.0 * windup_progress + 11.0 * strike_progress
+                deg += math.sin(self.engine.timer.run_time * 66.0) * 2.2 * hit_progress
+            else:
+                bob = 0.0
+                se = self.engine.super_director.active
+                if se is not None and se.enemy is e and se.current_skill is not None and se.skill_windup_left > 0:
+                    charge = 0.55 + 0.45 * math.sin(self.engine.timer.run_time * 18.0) ** 2
+                    deg -= 5.0 * charge
+                    pose_x -= int(forward[0] * wr * 0.08 * charge)
+                    pose_y -= int(forward[1] * wr * 0.08 * charge)
             rotated = pygame.transform.rotate(sprite, deg)
             if e.state.value == "dying":
                 rotated.set_alpha(max(0, min(255, int(255 * e.state_left / 0.24))))
-            rect = rotated.get_rect(center=(x, y))
+            rect = rotated.get_rect(center=(pose_x, int(pose_y + bob)))
             self.screen.blit(rotated, rect)
             if e.is_super:
                 pygame.draw.circle(
                     self.screen, (*COL_ENEMY_SUPER, 115), (x, y),
                     int(wr * 1.55), width=max(2, int(4 * self.scale)),
                 )
+                se = self.engine.super_director.active
+                if se is not None and se.enemy is e:
+                    # 四枚轨道核心会随阶段加速旋转，突出新 Boss 的机械结构。
+                    orbit_r = int(wr * 1.62)
+                    orbit_speed = 0.55 + se.phase * 0.38 + (0.8 if se.enraged else 0.0)
+                    for i in range(4):
+                        a = self.engine.timer.run_time * orbit_speed + math.tau * i / 4
+                        node = (x + int(math.cos(a) * orbit_r), y + int(math.sin(a) * orbit_r))
+                        node_color = T.ACCENT_2 if se.phase >= 3 and i % 2 else T.ACCENT
+                        pygame.draw.circle(self.screen, T.BLACK_OUTLINE, node, max(7, int(11 * self.scale)))
+                        pygame.draw.circle(self.screen, node_color, node, max(5, int(8 * self.scale)))
+                        pygame.draw.circle(self.screen, T.TEXT_PRIMARY, node, max(2, int(3 * self.scale)))
         elif e.is_super:
             # 8 角星 fallback
             points = []
@@ -2343,6 +2739,56 @@ class RGameApp:
             pygame.draw.circle(self.screen, color, (x, y), wr)
             pygame.draw.circle(self.screen, COL_HUD_BORDER, (x, y), max(3, wr // 3) + 1)
             pygame.draw.circle(self.screen, COL_HUD_BORDER, (x, y), max(3, wr // 3))
+        if not e.is_super and e.state.value not in ("spawning", "dying", "dead"):
+            rig_tint = {
+                "lantern_shooter": (255, 205, 92),
+                "multinode_spreader": (255, 88, 210),
+                "crystal_sniper": (90, 232, 255),
+                "shellguard_heavy": (255, 153, 80),
+                "rift_dancer": (100, 230, 255),
+                "void_mender": (105, 255, 210),
+                "prism_artillery": (155, 185, 255),
+            }.get(e.config_id, T.DANGER)
+            enemy_melee = e.projectile_speed <= 0 and not e.drops_bomb
+            rig_pose = -0.95 * windup_progress + 1.15 * strike_progress
+            if hit_progress > 0:
+                rig_pose -= hit_progress * 0.35
+            rig_side = -1 if sum(ord(ch) for ch in e.entity_id) % 2 else 1
+            self._draw_action_rig(
+                (pose_x, pose_y), facing_rad, max(11, int(wr * 0.92)), rig_tint,
+                melee=enemy_melee, pose=rig_pose, recoil=strike_progress, side=rig_side,
+            )
+        elif e.is_super:
+            se = self.engine.super_director.active
+            if se is not None and se.enemy is e and se.current_skill is not None and (se.skill_windup_left > 0 or se.skill_active_left > 0):
+                charging = se.skill_windup_left > 0
+                charge = 0.45 + 0.55 * math.sin(self.engine.timer.run_time * 18.0) ** 2 if charging else 1.0
+                skill_angle = se.skill_aim_angle
+                if se.current_skill == SuperSkill.LOCKED_DASH and math.hypot(*se.dash_direction) > 0.01:
+                    skill_angle = math.atan2(se.dash_direction[1], se.dash_direction[0])
+                heavy_strike = se.current_skill in (SuperSkill.LOCKED_DASH, SuperSkill.EXPAND_RING, SuperSkill.VOID_TIDAL)
+                self._draw_action_rig(
+                    (pose_x, pose_y), skill_angle, max(28, int(wr * 0.88)),
+                    T.ACCENT_2 if se.enraged else T.ACCENT,
+                    melee=heavy_strike, pose=(-0.9 if charging else 0.85) * charge,
+                    recoil=0.7 + 0.55 * charge, side=-1,
+                )
+        # 支援脉冲用短光束明确标出被修复的单位。
+        if e.config_id == "void_mender" and e.support_pulse_left > 0:
+            pulse_alpha = max(35, min(220, int(220 * e.support_pulse_left / 0.68)))
+            for ally_id in e.support_target_ids:
+                ally = next((candidate for candidate in self.engine.spawn_director.enemies if candidate.entity_id == ally_id), None)
+                if ally is None or ally.state in (EnemyState.DYING, EnemyState.DEAD):
+                    continue
+                ax, ay = self._world_to_screen(ally.position)
+                pygame.draw.line(self.screen, (*COL_HUD_BORDER, pulse_alpha), (x, y), (ax, ay), max(5, int(7 * self.scale)))
+                pygame.draw.line(self.screen, (*T.ACCENT, pulse_alpha), (x, y), (ax, ay), max(2, int(3 * self.scale)))
+                pygame.draw.circle(self.screen, (*T.ACCENT, pulse_alpha), (ax, ay), max(8, int(ally.collision_radius * self.scale + 6)), width=max(2, int(3 * self.scale)))
+        if e.phase_flash_left > 0:
+            phase_t = e.phase_flash_left / 0.5
+            phase_r = wr + int((1.0 - phase_t) * 34 * self.scale)
+            phase_alpha = max(0, min(220, int(220 * phase_t)))
+            pygame.draw.circle(self.screen, (*T.ACCENT_2, phase_alpha), (x, y), phase_r, width=max(2, int(4 * self.scale)))
         # 4. 命中闪白
         if self._enemy_hit_flash.get(e.entity_id, 0) > 0:
             white = pygame.Surface((wr * 4 + 4, wr * 4 + 4), pygame.SRCALPHA)
@@ -2355,8 +2801,8 @@ class RGameApp:
         if e.state.value == "windup" and e.projectile_speed > 0:
             facing = math.radians(e.facing)
             length = int(min(260, e.attack_range * 0.45) * self.scale)
-            ray_angles = (-24, -8, 8, 24) if e.config_id == "multinode_spreader" else (0,)
-            warning_color = T.ACCENT_2 if e.config_id == "crystal_sniper" else T.PROJ_ENEMY
+            ray_angles = (-24, -8, 8, 24) if e.config_id == "multinode_spreader" else (-14, 0, 14) if e.config_id == "prism_artillery" else (0,)
+            warning_color = T.ACCENT_2 if e.config_id in ("crystal_sniper", "prism_artillery") else T.PROJ_ENEMY
             for offset in ray_angles:
                 a = facing + math.radians(offset)
                 tip = (x + int(math.cos(a) * length), y + int(math.sin(a) * length))
@@ -2364,9 +2810,19 @@ class RGameApp:
                 pygame.draw.line(self.screen, warning_color, (x, y), tip, max(2, int(3 * self.scale)))
             charge_r = max(7, int((12 + 4 * math.sin(self.engine.timer.run_time * 22)) * self.scale))
             pygame.draw.circle(self.screen, warning_color, (x, y), charge_r, width=max(2, int(3 * self.scale)))
+            if e.attack_target_position is not None and e.config_id in ("crystal_sniper", "rail_turret", "prism_artillery"):
+                lock_x, lock_y = self._world_to_screen(e.attack_target_position)
+                target = (lock_x, lock_y)
+                pygame.draw.line(self.screen, COL_HUD_BORDER, (x, y), target, max(4, int(5 * self.scale)))
+                pygame.draw.line(self.screen, warning_color, (x, y), target, max(2, int(2 * self.scale)))
+                mark_r = max(10, int((26 - 8 * windup_progress) * self.scale))
+                pygame.draw.circle(self.screen, COL_HUD_BORDER, target, mark_r + 2, width=max(3, int(4 * self.scale)))
+                pygame.draw.circle(self.screen, warning_color, target, mark_r, width=max(2, int(3 * self.scale)))
+                pygame.draw.line(self.screen, warning_color, (lock_x - mark_r - 5, lock_y), (lock_x - mark_r // 2, lock_y), 2)
+                pygame.draw.line(self.screen, warning_color, (lock_x + mark_r // 2, lock_y), (lock_x + mark_r + 5, lock_y), 2)
 
         # 小兵出手反馈：枪口爆闪、狙击残光、散射火花、重兵震地或近战挥砍。
-        attack_age = self.engine.timer.run_time - e.last_attack_time
+        attack_age = enemy_attack_age
         if 0 <= attack_age <= 0.24:
             facing = math.radians(e.facing)
             fade = max(0.0, 1.0 - attack_age / 0.24)
@@ -2375,13 +2831,16 @@ class RGameApp:
                 "multinode_spreader": (255, 70, 210),
                 "crystal_sniper": (80, 245, 255),
                 "shellguard_heavy": (255, 155, 65),
+                "rift_dancer": (100, 245, 255),
+                "void_mender": (105, 255, 220),
+                "prism_artillery": (130, 180, 255),
             }.get(e.config_id, T.DANGER)
             if e.projectile_speed > 0:
                 muzzle_dist = int(wr + 18 * self.scale)
                 muzzle = (x + int(math.cos(facing) * muzzle_dist), y + int(math.sin(facing) * muzzle_dist))
                 flash_r = max(5, int((16 + 15 * fade) * self.scale))
                 pygame.draw.circle(self.screen, fx_color, muzzle, flash_r, width=max(2, int(5 * self.scale)))
-                if e.config_id == "crystal_sniper":
+                if e.config_id in ("crystal_sniper", "prism_artillery"):
                     beam_len = int(210 * self.scale * fade)
                     tip = (muzzle[0] + int(math.cos(facing) * beam_len), muzzle[1] + int(math.sin(facing) * beam_len))
                     pygame.draw.line(self.screen, fx_color, muzzle, tip, max(2, int(5 * self.scale)))
@@ -2415,12 +2874,61 @@ class RGameApp:
                     px, py = self._world_to_screen(self.engine.player.position)
                     pygame.draw.line(self.screen, COL_HUD_BORDER, (x, y), (px, py), max(8, int(13 * self.scale)))
                     pygame.draw.line(self.screen, T.DANGER, (x, y), (px, py), max(4, int(7 * self.scale)))
+                elif se.current_skill == SuperSkill.TRI_LASER:
+                    lane_overlay = pygame.Surface(self.world_rect.size, pygame.SRCALPHA)
+                    lane_count = 5 if se.enraged and se.phase >= 3 else 3
+                    spread = 24 if se.enraged else 17
+                    pulse = 0.45 + 0.35 * math.sin(self.engine.timer.run_time * 20) ** 2
+                    length = int(math.hypot(self.world_rect.w, self.world_rect.h))
+                    lane_origin = (x - self.world_rect.x, y - self.world_rect.y)
+                    for i in range(lane_count):
+                        offset = -spread + 2 * spread * i / max(1, lane_count - 1)
+                        angle = se.skill_aim_angle + math.radians(offset)
+                        tip = (lane_origin[0] + int(math.cos(angle) * length), lane_origin[1] + int(math.sin(angle) * length))
+                        pygame.draw.line(lane_overlay, (*T.ACCENT_2, int(70 + pulse * 65)), lane_origin, tip, max(8, int(15 * self.scale)))
+                        pygame.draw.line(lane_overlay, (*T.TEXT_PRIMARY, int(100 + pulse * 85)), lane_origin, tip, max(2, int(4 * self.scale)))
+                    self.screen.blit(lane_overlay, self.world_rect.topleft)
+                    label = pygame.Rect(x - 110, y - wr - 96, 220, 26)
+                    draw_text_center(self.screen, "棱镜炮列 · 横向闪避", label, color=T.ACCENT_2, font=self.font_small, outline=2)
+                elif se.current_skill == SuperSkill.VOID_TIDAL:
+                    pulse = 0.45 + 0.45 * math.sin(self.engine.timer.run_time * 17) ** 2
+                    ring_r = int((118 + 12 * pulse) * self.scale)
+                    pygame.draw.circle(self.screen, (*T.ACCENT_2, 145), (x, y), ring_r, width=max(2, int(3 * self.scale)))
+                    gap_center = se.skill_aim_angle
+                    gap_half = math.radians(29 if not se.enraged else 24)
+                    for i in range(48):
+                        angle = math.tau * i / 48
+                        diff = (angle - gap_center + math.pi) % math.tau - math.pi
+                        if abs(diff) <= gap_half:
+                            continue
+                        inner = (x + int(math.cos(angle) * ring_r), y + int(math.sin(angle) * ring_r))
+                        outer = (x + int(math.cos(angle) * (ring_r + 12)), y + int(math.sin(angle) * (ring_r + 12)))
+                        pygame.draw.line(self.screen, (*T.ACCENT, int(120 + 90 * pulse)), inner, outer, max(2, int(3 * self.scale)))
+                    label = pygame.Rect(x - 130, y - wr - 96, 260, 26)
+                    draw_text_center(self.screen, "虚空潮汐 · 穿过青色缺口", label, color=T.ACCENT, font=self.font_small, outline=2)
             elif se.enemy is e and se.current_skill == SuperSkill.LOCKED_DASH and se.skill_active_left > 0:
                 dash = self._scaled_art(self.effect_sources.get("boss_dash"), ("boss_dash",), (wr * 6, wr * 3))
                 if dash is not None:
                     angle = -math.degrees(math.atan2(se.dash_direction[1], se.dash_direction[0]))
                     dash = pygame.transform.rotate(dash, angle)
                     self.screen.blit(dash, dash.get_rect(center=(x, y)))
+            elif se.enemy is e and se.current_skill == SuperSkill.TRI_LASER and se.skill_active_left > 0:
+                pulse = 0.62 + 0.38 * math.sin(self.engine.timer.run_time * 28) ** 2
+                lane_overlay = pygame.Surface(self.world_rect.size, pygame.SRCALPHA)
+                lane_count = 5 if se.enraged and se.phase >= 3 else 3
+                spread = 24 if se.enraged else 17
+                length = int(math.hypot(self.world_rect.w, self.world_rect.h))
+                lane_origin = (x - self.world_rect.x, y - self.world_rect.y)
+                for i in range(lane_count):
+                    offset = -spread + 2 * spread * i / max(1, lane_count - 1)
+                    angle = se.skill_aim_angle + math.radians(offset)
+                    tip = (lane_origin[0] + int(math.cos(angle) * length), lane_origin[1] + int(math.sin(angle) * length))
+                    pygame.draw.line(lane_overlay, (*T.ACCENT, int(38 + pulse * 42)), lane_origin, tip, max(5, int(9 * self.scale)))
+                self.screen.blit(lane_overlay, self.world_rect.topleft)
+            elif se.enemy is e and se.current_skill == SuperSkill.VOID_TIDAL and se.skill_active_left > 0:
+                ring_r = int((wr + 76 + 10 * math.sin(self.engine.timer.run_time * 16)) * self.scale)
+                pygame.draw.circle(self.screen, (*T.ACCENT_2, 155), (x, y), ring_r, width=max(2, int(3 * self.scale)))
+                pygame.draw.circle(self.screen, (*T.ACCENT, 110), (x, y), max(4, ring_r - int(12 * self.scale)), width=1)
         # 6. T1–T3 视觉档（在贴图外侧加环）
         if e.time_form == "T1":
             pygame.draw.circle(self.screen, color, (x, y), wr + 4, width=1)
@@ -2447,7 +2955,7 @@ class RGameApp:
                     draw_text_center(self.screen, cfg.get("name", "?")[:1], chip, color=T.TEXT_DARK, font=self.font_small, outline=1)
         if e.is_super and self.engine.super_director.active is not None and self.engine.super_director.active.enemy is e:
             se = self.engine.super_director.active
-            draw_text_center(self.screen, f"阶段 {se.phase}", pygame.Rect(x - 44, y - wr - 64, 88, 22), color=T.DANGER if se.phase >= 3 else T.CARD_GOLD, font=self.font_small, outline=2)
+            draw_text_center(self.screen, f"虚空守卫 · 阶段 {se.phase}", pygame.Rect(x - 110, y - wr - 64, 220, 22), color=T.DANGER if se.phase >= 3 else T.CARD_GOLD, font=self.font_small, outline=2)
             gauge_w = max(80, int(wr * 2.2))
             gauge = pygame.Rect(x - gauge_w // 2, y + wr + 14, gauge_w, 7)
             gauge_art = self._scaled_art(self.boss_ui_sources.get("break_gauge"), ("boss_ui", "break_gauge"), (gauge_w + 8, 15))
@@ -2473,7 +2981,7 @@ class RGameApp:
     def _draw_enemy_hp(self, e, x, y, width, height):
         ratio = e.current_hp / max(1.0, e.max_hp)
         c = COL_ENEMY_SUPER if e.is_super else (COL_ENEMY_ELITE if e.is_elite else COL_ENEMY)
-        # 血条：黑色描边 + 高饱和填充（元气骑士风）
+        # 敌方血条沿用舰载 HUD 的深色槽体与阵营色。
         rect = pygame.Rect(x, y, width, height)
         pygame.draw.rect(self.screen, COL_HUD_BORDER, rect.inflate(4, 2), border_radius=4)
         pygame.draw.rect(self.screen, COL_HP_BACK, rect, border_radius=3)
@@ -2487,7 +2995,12 @@ class RGameApp:
             "enemy_arcane": (255, 215, 70),
             "enemy_shard": (255, 70, 215),
             "enemy_rail": (75, 245, 255),
+            "enemy_phase": (120, 210, 255),
+            "enemy_support": (90, 255, 205),
+            "enemy_prism": (160, 180, 255),
             "boss_orb": (255, 125, 45),
+            "boss_lattice": T.ACCENT_2,
+            "boss_tidal": (100, 225, 255),
         }.get(p.visual_kind, T.PROJ_ENEMY)
         speed = math.hypot(p.velocity[0], p.velocity[1])
         glow = make_glow(max(8, r * 5), color, 88)
@@ -2496,10 +3009,13 @@ class RGameApp:
             effect_id = {
                 "ricochet": "ricochet", "enemy_arcane": "enemy_arcane",
                 "enemy_shard": "enemy_shard", "enemy_rail": "enemy_rail",
-                "boss_orb": "boss_orb", "laser": "laser",
+                "enemy_phase": "plasma_bolt", "enemy_support": "plasma_bolt",
+                "enemy_prism": "plasma_bolt",
+                "boss_orb": "boss_orb", "boss_lattice": "plasma_bolt",
+                "boss_tidal": "plasma_bolt", "laser": "plasma_bolt",
             }.get(p.visual_kind)
             if effect_id is not None:
-                if effect_id == "laser":
+                if effect_id in ("laser", "plasma_bolt"):
                     art_size = (max(36, r * 9), max(12, r * 3))
                 elif effect_id == "enemy_rail":
                     art_size = (max(24, r * 7), max(12, r * 3))
@@ -2570,12 +3086,19 @@ class RGameApp:
         elif p.kind == "coin":
             color = T.CARD_GOLD
             shape = "coin"
+        elif p.kind == "skill_charge":
+            color = T.ACCENT
+            shape = "diamond"
         else:
             color = T.PICKUP_BUFF
             shape = "star"
         size = max(6, int(11 * self.scale))
-        glow = make_glow(size * 3, color, 65)
+        pulse = 0.76 + 0.24 * math.sin(self.engine.timer.run_time * 5.5 + x * 0.01 + y * 0.02)
+        glow = make_glow(max(8, int(size * 3 * pulse)), color, 72)
         self.screen.blit(glow, glow.get_rect(center=(x, y)))
+        orbit_angle = self.engine.timer.run_time * 2.6 + x * 0.013 + y * 0.007
+        orbit_pos = (x + int(math.cos(orbit_angle) * size * 1.45), y + int(math.sin(orbit_angle) * size * 1.45))
+        pygame.draw.circle(self.screen, T.TEXT_PRIMARY, orbit_pos, max(2, int(2.5 * self.scale)))
         asset_key = "xp" if p.kind.startswith("xp") else p.kind
         icon = self._scaled_art(self.pickup_icon_sources.get(asset_key), ("pickup", asset_key), (size * 3, size * 3))
         if icon is not None:
@@ -2626,10 +3149,14 @@ class RGameApp:
             self._draw_player_thunder_bomb(b)
             return
         x, y = self._world_to_screen(b.position)
-        # 元气骑士风炸弹：粗黑描边 + 高对比
+        # 危险圈用深色外环与高亮语义色，确保预警清楚可读。
         r = int(b.radius * self.scale)
         armed = self.engine.timer.run_time >= b.armed_at
         col = T.DANGER if armed else T.PICKUP_BOMB
+        if b.icon == "mine_pulse":
+            col = (255, 194, 72) if armed else (174, 124, 44)
+        elif b.icon == "rail_lock":
+            col = (255, 112, 128) if armed else (166, 66, 82)
         # 底层红色光晕（armed 时呼吸）
         glow_r = r * 2 if armed else r
         alpha = int(40 + 20 * math.sin(self.engine.timer.run_time * 8)) if armed else 28
@@ -2644,6 +3171,12 @@ class RGameApp:
         body_r = max(8, int(r * 0.28))
         pygame.draw.circle(self.screen, COL_HUD_BORDER, (x, y), body_r + 2)
         pygame.draw.circle(self.screen, (32, 18, 22), (x, y), body_r)
+        mine_art = self._scaled_art(
+            self.pickup_icon_sources.get("hazard_bomb"), ("hazard_bomb",),
+            (max(22, body_r * 3), max(22, body_r * 3)),
+        )
+        if mine_art is not None:
+            self.screen.blit(mine_art, mine_art.get_rect(center=(x, y)))
         # 高光
         pygame.draw.circle(self.screen, (*col, 200), (x - body_r // 3, y - body_r // 3), max(2, body_r // 3))
         # 引线
@@ -2948,7 +3481,7 @@ class RGameApp:
         return (int(sx), int(sy))
 
     def _render_hud(self, st: str) -> None:
-        # 左上 HP / 护盾 / 护甲（元气骑士风胶囊面板）
+        # 左上生命、护盾与护甲读数统一放在舰载状态面板中。
         px = self.world_rect.x + 24
         py = self.world_rect.y + 24
         panel_rect = pygame.Rect(px - 12, py - 12, 280, 100)
@@ -3050,6 +3583,7 @@ class RGameApp:
                 "random_event",
                 {
                     "id": ev.get("id", ""),
+                    "icon_id": ev.get("icon_id", ev.get("id", "")),
                     "name": ev.get("name", "事件"),
                     "desc": ev.get("desc", ""),
                     "left": float(ev.get("left", 0.0)),
@@ -3132,6 +3666,17 @@ class RGameApp:
         draw_text(self.screen, skill_cfg["name"], (skill_rect.x + 32, skill_rect.y + 8), size=14, color=T.TEXT_PRIMARY, font=self.font_small, outline=1)
         cd_text = "就绪" if ready else f"冷却{self.engine.active_skill_cd_left:.1f}"
         draw_text(self.screen, cd_text, (skill_rect.x + 32, skill_rect.y + 32), size=14, color=T.ACCENT if ready else T.TEXT_DIM, font=self.font_small, outline=1)
+        active_buffs = [
+            ("speed+15%", "疾行", T.ACCENT),
+            ("aspd+15%", "超频", T.ACCENT_2),
+        ]
+        for index, (buff_id, label, tint) in enumerate(active_buffs):
+            remaining = self.engine.temp_buff_until.get(buff_id, 0.0) - self.engine.timer.run_time
+            if remaining <= 0:
+                continue
+            badge = pygame.Rect(skill_rect.x, skill_rect.y - 27 - index * 25, skill_rect.w, 22)
+            draw_panel(self.screen, badge, border=tint, fill=T.BG_PANEL_ALT, alpha=228, radius=6, outline=2)
+            draw_text_center(self.screen, f"{label} {remaining:.0f}s", badge, color=T.TEXT_PRIMARY, font=self.font_small, outline=1)
         # 底部中央：等级 + 经验
         # 子报告 P1-7：原 challenge_rect 跟 lv_rect 在 1280x720 互相侵入 146x36。
         # challenge_rect 沿用原位；lv_rect 上移 56px、宽 200、水平居中。
@@ -3151,20 +3696,22 @@ class RGameApp:
 
     def _render_menu(self, st: str) -> None:
         cw, ch = self.screen_w, self.screen_h
-        self._render_menu_backdrop()
+        self._render_menu_backdrop(st)
         # 标题
         if st == "MAIN_MENU":
-            title_rect = pygame.Rect(cw // 2 - 380, 88, 760, 200)
-            draw_panel(self.screen, title_rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=190, radius=20, outline=4)
-            draw_text_center(self.screen, "火星攻击", pygame.Rect(cw // 2 - 240, 116, 480, 80), color=T.ACCENT, font=self.font_big, outline=3)
-            draw_text_center(self.screen, "俯视角单屏肉鸽", pygame.Rect(cw // 2 - 240, 196, 480, 40), color=T.TEXT_PRIMARY, font=self.font_mid, outline=2)
-            draw_text_center(self.screen, "战斗：移动键/方向键移动 · 技能键放技能 · 切换键换武器", pygame.Rect(cw // 2 - 360, 238, 720, 24), color=T.ACCENT, font=self.font_small, outline=1)
-            draw_text_center(self.screen, "菜单：上下选择，左右切技能，确认键进入", pygame.Rect(cw // 2 - 330, 264, 660, 24), color=T.TEXT_DIM, font=self.font_small, outline=1)
-            # 主菜单按钮（元气骑士风胶囊）
+            menu_w = min(520, max(440, int(cw * 0.29)))
+            menu_x = 36
+            title_rect = pygame.Rect(menu_x, 62, menu_w, 220)
+            draw_panel(self.screen, title_rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=184, radius=20, outline=4)
+            draw_text_center(self.screen, "火星攻击", pygame.Rect(menu_x + 24, 78, menu_w - 48, 74), color=T.ACCENT, font=self.font_big, outline=3)
+            draw_text_center(self.screen, "俯视角单屏肉鸽", pygame.Rect(menu_x + 24, 150, menu_w - 48, 38), color=T.TEXT_PRIMARY, font=self.font_mid, outline=2)
+            draw_text_center(self.screen, "移动与闪避 · 自动武器 · 深空异变", pygame.Rect(menu_x + 18, 203, menu_w - 36, 24), color=T.ACCENT, font=self.font_small, outline=1)
+            draw_text_center(self.screen, "WASD 移动　Q/E 切技能　Tab 换武器", pygame.Rect(menu_x + 18, 237, menu_w - 36, 22), color=T.TEXT_DIM, font=self.font_small, outline=1)
+            # 主菜单按钮使用统一的斜切角交互组件。
             account = getattr(self.engine.profile, "account_name", self.engine.profile.profile_id)
-            draw_text_center(self.screen, f"账号：{account}   金币：{self.engine.gold()}", pygame.Rect(cw // 2 - 280, 292, 560, 28), color=T.CARD_GOLD, font=self.font_small, outline=1)
+            draw_text_center(self.screen, f"账号：{account}   金币：{self.engine.gold()}", pygame.Rect(menu_x, 288, menu_w, 28), color=T.CARD_GOLD, font=self.font_small, outline=1)
             for i, label in enumerate(["开始", "商店", "成就", "历史", "切换账号", "退出"]):
-                btn = pygame.Rect(cw // 2 - 160, 324 + i * 62, 320, 54)
+                btn = pygame.Rect(menu_x + 24, 326 + i * 62, menu_w - 48, 54)
                 accent = (T.ACCENT, T.CARD_GOLD, T.ACCENT_2, T.ACCENT_3, T.PICKUP_SHIELD, T.DANGER)[i]
                 draw_button(self.screen, btn, label, font=self.font_mid, active=(i == self.selection_state["main"]), accent=accent)
             self._render_history_preview()
@@ -3201,28 +3748,33 @@ class RGameApp:
             draw_button(self.screen, start_btn, "开始游戏", font=self.font_mid, active=(self.selection_state["preset"] == 4), accent=T.CARD_GOLD)
             picker = pygame.Rect(cw // 2 - 205, 132, 790, 404)
             draw_panel(self.screen, picker, border=T.ACCENT_2, fill=T.BG_PANEL, alpha=210, radius=14, outline=3)
+            skin_panel = self._player_skin_panel_rect(cw)
+            skin_prev, skin_next = self._player_skin_controls(skin_panel)
             active_slot = self.selection_state["preset"]
             is_equipment = active_slot in (2, 3)
             if active_slot == 4:
-                draw_text_center(self.screen, "确认配置后开始游戏", pygame.Rect(picker.x + 40, picker.y + 78, picker.w - 80, 60), color=T.CARD_GOLD, font=self.font_mid, outline=2)
-                draw_text_center(self.screen, "上方槽位会带入本局；主动技能在下方选择。", pygame.Rect(picker.x + 40, picker.y + 152, picker.w - 80, 32), color=T.TEXT_DIM, font=self.font_small, outline=1)
+                preview_text_w = max(300, min(picker.w - 80, skin_panel.left - picker.x - 56))
+                draw_text_center(self.screen, "确认配置后开始游戏", pygame.Rect(picker.x + 28, picker.y + 78, preview_text_w, 60), color=T.CARD_GOLD, font=self.font_mid, outline=2)
+                draw_text_center(self.screen, "上方槽位会带入本局；主动技能在下方选择。", pygame.Rect(picker.x + 28, picker.y + 152, preview_text_w, 32), color=T.TEXT_DIM, font=self.font_small, outline=1, size=13)
                 current_pool = []
             elif is_equipment:
                 current_pool = self.engine.account_equipment_pool()
                 self.equipment_pool_index = max(0, min(self.equipment_pool_index, max(0, len(current_pool) - 1)))
                 draw_text(self.screen, f"选择核心槽 {active_slot - 1}", (picker.x + 24, picker.y + 18), size=22, color=T.PICKUP_SHIELD, font=self.font, outline=2)
-                draw_text(self.screen, f"{self.equipment_pool_index + 1}/{max(1, len(current_pool))}", (picker.right - 86, picker.y + 22), size=16, color=T.TEXT_DIM, font=self.font_small, outline=1)
+                draw_text(self.screen, f"{self.equipment_pool_index + 1}/{max(1, len(current_pool))}", (min(picker.right - 86, skin_panel.left - 84), picker.y + 22), size=16, color=T.TEXT_DIM, font=self.font_small, outline=1)
             else:
                 current_pool = self.engine.account_weapon_pool()
                 self.weapon_pool_index = max(0, min(self.weapon_pool_index, max(0, len(current_pool) - 1)))
                 draw_text(self.screen, f"选择武器槽 {active_slot + 1}", (picker.x + 24, picker.y + 18), size=22, color=T.ACCENT, font=self.font, outline=2)
-                draw_text(self.screen, f"{self.weapon_pool_index + 1}/{max(1, len(current_pool))}", (picker.right - 86, picker.y + 22), size=16, color=T.TEXT_DIM, font=self.font_small, outline=1)
+                draw_text(self.screen, f"{self.weapon_pool_index + 1}/{max(1, len(current_pool))}", (min(picker.right - 86, skin_panel.left - 84), picker.y + 22), size=16, color=T.TEXT_DIM, font=self.font_small, outline=1)
             if active_slot != 4:
                 visible_count = 5
                 focus = self.equipment_pool_index if is_equipment else self.weapon_pool_index
                 first = self._pool_page_start(len(current_pool), focus, visible_count)
                 visible = current_pool[first:first + visible_count]
-                list_rect = pygame.Rect(picker.x + 24, picker.y + 58, picker.w - 48, 302)
+                list_x = picker.x + 24
+                list_width = max(320, min(picker.w - 48, skin_panel.left - list_x - 16))
+                list_rect = pygame.Rect(list_x, picker.y + 58, list_width, 302)
                 pygame.draw.rect(self.screen, COL_HUD_BORDER, list_rect, border_radius=12)
                 pygame.draw.rect(self.screen, T.BG_PANEL_ALT, list_rect.inflate(-4, -4), border_radius=10)
                 for offset, item_id in enumerate(visible):
@@ -3253,7 +3805,24 @@ class RGameApp:
                     if status:
                         draw_text(self.screen, status, (row.right - 92, row.y + 17), size=13, color=T.ACCENT if focused else T.CARD_GOLD, font=self.font_small, outline=1)
                 if len(current_pool) > visible_count:
-                    draw_text_center(self.screen, "A/D 切换列表项目，确认装入当前槽位", pygame.Rect(picker.x + 40, picker.bottom - 40, picker.w - 80, 24), color=T.TEXT_DIM, font=self.font_small, outline=1)
+                    draw_text_center(self.screen, "A/D 切换列表项目，确认装入当前槽位", pygame.Rect(list_rect.x + 12, picker.bottom - 40, list_rect.w - 24, 24), color=T.TEXT_DIM, font=self.font_small, outline=1, size=12)
+            draw_panel(self.screen, skin_panel, border=T.ACCENT, fill=T.BG_PANEL, alpha=232, radius=14, outline=3)
+            draw_text_center(self.screen, "主角外观", pygame.Rect(skin_panel.x + 12, skin_panel.y + 12, skin_panel.w - 24, 32), color=T.ACCENT, font=self.font, outline=2)
+            skin_id = getattr(self.engine, "player_skin_id", PLAYER_SKIN_OPTIONS[0][0])
+            skin_name = dict(PLAYER_SKIN_OPTIONS).get(skin_id, PLAYER_SKIN_OPTIONS[0][1])
+            preview = self._player_skin_preview(skin_id, (skin_panel.w - 32, 210))
+            if preview is not None:
+                self.screen.blit(preview, preview.get_rect(center=(skin_panel.centerx, skin_panel.y + 164)))
+            draw_text_center(self.screen, skin_name, pygame.Rect(skin_panel.x + 12, skin_panel.y + 256, skin_panel.w - 24, 28), color=T.TEXT_PRIMARY, font=self.font_small, outline=1)
+            draw_button(self.screen, skin_prev, "‹", font=self.font_mid, active=False, accent=T.ACCENT_2)
+            draw_button(self.screen, skin_next, "›", font=self.font_mid, active=False, accent=T.ACCENT_2)
+            skin_index = next((i for i, (sid, _label) in enumerate(PLAYER_SKIN_OPTIONS) if sid == skin_id), 0)
+            dot_gap = 18
+            dot_x = skin_panel.centerx - (len(PLAYER_SKIN_OPTIONS) - 1) * dot_gap // 2
+            for i in range(len(PLAYER_SKIN_OPTIONS)):
+                pygame.draw.circle(self.screen, T.CARD_GOLD if i == skin_index else COL_HUD_BORDER,
+                                   (dot_x + i * dot_gap, skin_panel.y + 354), 5 if i == skin_index else 3)
+            draw_text_center(self.screen, "点击切换 · V 循环", pygame.Rect(skin_panel.x + 8, skin_panel.y + 366, skin_panel.w - 16, 22), color=T.TEXT_DIM, font=self.font_small, outline=1, size=12)
             # T3 改造：技能 chip 显示冷却 + 难度；下方显示选中技能的描述。
             selected_skill = self.skill_ids[self.skill_select_index]
             selected_preview = self._skill_preview(selected_skill)
@@ -3272,7 +3841,7 @@ class RGameApp:
             desc_rect = pygame.Rect(cw // 2 - 480, chip_y + chip_h + 8, 960, 28)
             draw_text_center(self.screen, selected_preview["desc"], desc_rect, color=T.ACCENT, font=self.font_small, outline=1, size=13)
             # 操作提示也补充左右键切技能
-            draw_text_center(self.screen, "W/S选槽位或开始 · A/D选当前池项目 · Q/E/A/D选技能 · 确认装入",
+            draw_text_center(self.screen, "W/S选槽位 · A/D选项目 · Q/E选技能 · V切换主角外观 · 确认装入",
                              pygame.Rect(cw // 2 - 480, 620, 960, 24),
                              color=T.TEXT_DIM, font=self.font_small, outline=1, size=13)
         elif st == "RESULT":
@@ -3280,28 +3849,59 @@ class RGameApp:
         elif st == "BOOT":
             draw_text(self.screen, "载入中……", (cw // 2 - 80, ch // 2 - 20), size=36, color=T.TEXT_PRIMARY, font=self.font_big, outline=2)
 
-    def _render_menu_backdrop(self) -> None:
-        if self.bg_source is not None:
+    def _render_menu_backdrop(self, state: str = "") -> None:
+        use_keyart = state == "MAIN_MENU" and self.menu_illustration_source is not None
+        if use_keyart:
+            size = (self.screen_w, self.screen_h)
+            if self.menu_illustration_scaled is None or self.menu_illustration_scaled_key != size:
+                self.menu_illustration_scaled = pygame.transform.smoothscale(self.menu_illustration_source, size)
+                self.menu_illustration_scaled_key = size
+            self.screen.blit(self.menu_illustration_scaled, (0, 0))
+            shade_key = ("menu_left_shade", self.screen_w, self.screen_h)
+            left_shade = self._scene_overlay_cache.get(shade_key)
+            if left_shade is None:
+                left_shade = pygame.Surface((self.screen_w, self.screen_h), pygame.SRCALPHA)
+                for x in range(0, self.screen_w, 4):
+                    fade = max(0.0, 1.0 - x / max(1, self.screen_w * 0.58))
+                    alpha = int(184 * fade * fade)
+                    if alpha:
+                        pygame.draw.line(left_shade, (2, 8, 18, alpha), (x, 0), (x, self.screen_h), 4)
+                self._scene_overlay_cache[shade_key] = left_shade
+            self.screen.blit(left_shade, (0, 0))
+        elif self.bg_source is not None:
             bg = pygame.transform.smoothscale(self.bg_source, (self.screen_w, self.screen_h))
             self.screen.blit(bg, (0, 0))
         else:
             pygame.draw.rect(self.screen, T.BG_DARK, (0, 0, self.screen_w, self.screen_h))
-        # 元气骑士风：暖色暗角 + 中心 cyan 辉光
+        # 深空氛围：冷色暗角、分层星尘与两道低亮度星云。
         overlay = pygame.Surface((self.screen_w, self.screen_h), pygame.SRCALPHA)
-        # 顶/底渐变暗角
         for y in range(0, self.screen_h, 4):
             t = abs(y - self.screen_h // 2) / (self.screen_h / 2)
-            a = int(80 * t)
+            a = int(112 * t)
             pygame.draw.line(overlay, (4, 8, 16, a), (0, y), (self.screen_w, y), 4)
         self.screen.blit(overlay, (0, 0))
-        cx, cy = self.screen_w // 2, int(self.screen_h * 0.38)
-        glow = make_glow(max(180, min(self.screen_w, self.screen_h) // 3), T.ACCENT, 70)
-        self.screen.blit(glow, glow.get_rect(center=(cx, cy)))
-        # 装饰：左上角小六边形 logo 块
-        deco_rect = pygame.Rect(28, 28, 84, 84)
-        pygame.draw.rect(self.screen, COL_HUD_BORDER, deco_rect, border_radius=18)
-        pygame.draw.rect(self.screen, T.ACCENT, deco_rect.inflate(-6, -6), border_radius=14)
-        draw_text_center(self.screen, "肉", deco_rect, color=T.TEXT_DARK, font=self.font_mid, outline=1)
+        if not use_keyart:
+            cx, cy = self.screen_w // 2, int(self.screen_h * 0.38)
+            glow = make_glow(max(180, min(self.screen_w, self.screen_h) // 3), T.ACCENT, 70)
+            self.screen.blit(glow, glow.get_rect(center=(cx, cy)))
+            violet = make_glow(max(120, min(self.screen_w, self.screen_h) // 4), T.ACCENT_2, 36)
+            self.screen.blit(violet, violet.get_rect(center=(int(self.screen_w * 0.82), int(self.screen_h * 0.74))))
+        # 可复现的星尘分布，轻微闪烁但不消耗随机流。
+        drift = self.engine.timer.run_time * 0.0018
+        for i in range(76):
+            fx = ((i * 193 + 59) % 997) / 997.0
+            fy = ((i * 317 + 131) % 991) / 991.0
+            x = int(((fx + drift * (1 + i % 3)) % 1.0) * self.screen_w)
+            y = int(fy * self.screen_h)
+            pulse = 0.38 + 0.62 * (0.5 + 0.5 * math.sin(self.engine.timer.run_time * 1.7 + i * 1.31))
+            base = T.ACCENT_2 if i % 9 == 0 else T.ACCENT
+            color = tuple(int(c * pulse * 0.78) for c in base)
+            pygame.draw.circle(self.screen, color, (x, y), 1 if i % 7 else max(1, int(self.scale * 2)))
+        if not use_keyart:
+            # 左上角舰载识别徽记。
+            deco_rect = pygame.Rect(28, 28, 84, 84)
+            draw_panel(self.screen, deco_rect, border=T.ACCENT, fill=T.BG_PANEL, alpha=232, radius=14, outline=3)
+            draw_text_center(self.screen, "火", deco_rect, color=T.TEXT_PRIMARY, font=self.font_mid, outline=1)
 
     def _render_result(self) -> None:
         cw, ch = self.screen_w, self.screen_h
@@ -3403,6 +4003,51 @@ class RGameApp:
             except Exception:
                 pass
 
+    def _draw_card_emblem(self, card, center: tuple[int, int], color, index: int) -> None:
+        x, y = center
+        radius = max(24, int(42 * self.scale))
+        pygame.draw.circle(self.screen, T.BLACK_OUTLINE, center, radius + 4)
+        pygame.draw.circle(self.screen, T.BG_PANEL_ALT, center, radius)
+        pygame.draw.circle(self.screen, color, center, radius, width=max(2, int(3 * self.scale)))
+        effects = list(getattr(card, "effects", ()) or ())
+        weapon_id = next((eff.get("weapon_id") for eff in effects if eff.get("type") == "gain_weapon"), None)
+        weapon_icon = self._scaled_art(
+            self.weapon_icon_sources.get(weapon_id), ("card_emblem", weapon_id), (radius, radius)
+        ) if weapon_id else None
+        if weapon_icon is not None:
+            self.screen.blit(weapon_icon, weapon_icon.get_rect(center=center))
+        else:
+            effect_types = {str(eff.get("type", "")) for eff in effects}
+            if effect_types & {"max_hp_flat", "current_hp_flat", "shield_flat", "armor_flat", "max_shield_flat", "shield_regen_unlocked", "break_invuln"}:
+                points = [
+                    (x, y - int(radius * 0.54)), (x + int(radius * 0.42), y - int(radius * 0.24)),
+                    (x + int(radius * 0.34), y + int(radius * 0.28)), (x, y + int(radius * 0.58)),
+                    (x - int(radius * 0.34), y + int(radius * 0.28)), (x - int(radius * 0.42), y - int(radius * 0.24)),
+                ]
+                pygame.draw.polygon(self.screen, color, points, width=max(2, int(3 * self.scale)))
+                pygame.draw.line(self.screen, T.TEXT_PRIMARY, (x - radius // 5, y), (x + radius // 5, y), max(2, int(3 * self.scale)))
+                pygame.draw.line(self.screen, T.TEXT_PRIMARY, (x, y - radius // 5), (x, y + radius // 5), max(2, int(3 * self.scale)))
+            elif effect_types & {"move_speed_pct", "pickup_radius_pct", "xp_gain_pct", "turn_speed_pct"}:
+                orbit = int(radius * 0.38)
+                pygame.draw.circle(self.screen, color, center, orbit, width=max(2, int(3 * self.scale)))
+                for i in range(3):
+                    a = self.engine.timer.run_time * 0.6 + math.tau * i / 3
+                    node = (x + int(math.cos(a) * orbit), y + int(math.sin(a) * orbit))
+                    pygame.draw.circle(self.screen, T.TEXT_PRIMARY, node, max(3, int(5 * self.scale)))
+            else:
+                # 武器与进攻卡统一用准星棱晶，暴击卡额外显示四向闪光。
+                pygame.draw.circle(self.screen, color, center, max(6, int(radius * 0.32)), width=max(2, int(3 * self.scale)))
+                pygame.draw.line(self.screen, T.TEXT_PRIMARY, (x - radius // 2, y), (x + radius // 2, y), max(2, int(3 * self.scale)))
+                pygame.draw.line(self.screen, T.TEXT_PRIMARY, (x, y - radius // 2), (x, y + radius // 2), max(2, int(3 * self.scale)))
+                if effect_types & {"crit_chance_bonus", "crit_multiplier_bonus", "prism_flare"}:
+                    for i in range(4):
+                        a = math.pi * i / 2
+                        tip = (x + int(math.cos(a) * radius * 0.78), y + int(math.sin(a) * radius * 0.78))
+                        pygame.draw.line(self.screen, color, center, tip, max(2, int(3 * self.scale)))
+        badge = pygame.Rect(x + radius - 13, y + radius - 11, 26, 22)
+        draw_panel(self.screen, badge, border=T.ACCENT, fill=T.BG_DARK, alpha=245, radius=6, outline=2)
+        draw_text_center(self.screen, str(index + 1), badge, color=T.TEXT_PRIMARY, font=self.font_small, outline=1)
+
     def _render_card_select(self) -> None:
         offer = self.engine._card_offer_now
         if offer is None:
@@ -3415,39 +4060,34 @@ class RGameApp:
         title_rect = pygame.Rect(sw // 2 - 280, 50, 560, 80)
         draw_panel(self.screen, title_rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=220, radius=18, outline=4)
         draw_text_center(self.screen, "选择一张卡", title_rect, color=T.ACCENT, font=self.font_big, outline=3)
-        draw_text_center(self.screen, "按 1 / 2 / 3 选择，R 刷新一次", pygame.Rect(sw // 2 - 240, 138, 480, 30), color=T.TEXT_DIM, font=self.font_small, outline=1)
+        draw_text_center(self.screen, "选一条构筑路线 · 1 / 2 / 3 选择 · R 刷新一次", pygame.Rect(sw // 2 - 300, 138, 600, 30), color=T.TEXT_DIM, font=self.font_small, outline=1)
         for i, card in enumerate(offer.cards):
             rect = pygame.Rect(sw // 2 - 380 + i * 260, sh - 360, 240, 320)
             color = rarity_color(card.rarity_zh)
-            if i == self.selection_state["card"]:
-                color = T.ACCENT
+            selected = i == self.selection_state["card"]
+            if selected:
+                rect.y -= int(5 + 2 * math.sin(self.engine.timer.run_time * 4))
             # 底层辉光
-            glow = make_glow(96, color, 55)
+            glow = make_glow(116 if selected else 96, T.ACCENT if selected else color, 78 if selected else 44)
             self.screen.blit(glow, glow.get_rect(center=rect.center))
-            # 卡牌本体：元气骑士风（粗黑描边 + 高饱和）
-            draw_panel(self.screen, rect, border=color, fill=T.BG_PANEL, alpha=235, radius=18, outline=4)
-            frame = self._scaled_art(self.card_frame_sources.get(card.rarity_zh), ("card", card.rarity_zh), (rect.w, rect.h))
-            if frame is not None:
-                self.screen.blit(frame, rect)
-            # 内部高光
-            pygame.draw.rect(self.screen, (*color, 64), rect.inflate(-18, -18), border_radius=12, width=2)
+            # 卡牌本体：稀有度决定棱晶色，焦点态额外叠加青色边框与升浮。
+            draw_panel(self.screen, rect, border=T.ACCENT if selected else color, fill=T.BG_PANEL, alpha=242, radius=18, outline=4)
             # 顶部稀有度条
             tier_band = pygame.Rect(rect.x + 6, rect.y + 6, rect.w - 12, 28)
-            pygame.draw.rect(self.screen, COL_HUD_BORDER, tier_band, border_radius=8)
-            pygame.draw.rect(self.screen, color, tier_band.inflate(-4, -4), border_radius=6)
-            draw_text_center(self.screen, card.rarity_zh, tier_band, color=T.TEXT_DARK, font=self.font_small, outline=1)
-            # 圆形图标槽
-            icon_center = (rect.centerx, rect.y + 110)
-            pygame.draw.circle(self.screen, COL_HUD_BORDER, icon_center, 42)
-            pygame.draw.circle(self.screen, color, icon_center, 38, width=3)
-            pygame.draw.circle(self.screen, (*color, 80), icon_center, 30)
-            draw_text_center(self.screen, str(i + 1), pygame.Rect(icon_center[0] - 22, icon_center[1] - 22, 44, 44), color=T.TEXT_PRIMARY, font=self.font_mid, outline=2)
-            # 标题（描黑）
-            draw_text(self.screen, card.name_zh, (rect.x + 14, rect.y + 48), size=22, color=T.TEXT_PRIMARY, font=self.font, outline=2)
-            # 描述
+            draw_panel(self.screen, tier_band, border=color, fill=T.BG_PANEL_ALT, alpha=230, radius=8, outline=2)
+            draw_text_center(self.screen, f"{card.rarity_zh}级 · {('稀有' if card.tier == 'gold' else '传说' if card.tier == 'color' else '标准')}", tier_band, color=color, font=self.font_small, outline=1)
+            icon_center = (rect.centerx, rect.y + 118)
+            self._draw_card_emblem(card, icon_center, color, i)
+            draw_text_center(self.screen, card.name_zh, pygame.Rect(rect.x + 12, rect.y + 38, rect.w - 24, 30), size=20, color=T.TEXT_PRIMARY, font=self.font, outline=1)
             desc_text = self._describe_card(card)
             self._draw_wrapped_text(desc_text, rect.x + 18, rect.y + 168, rect.w - 36, font=self.font_small, line_h=24)
-        # 刷新按钮（元气骑士风）
+            tag_names = {"offense": "进攻", "defense": "生存", "utility": "机动", "weapon": "武器", "precision": "暴击"}
+            tags = [tag_names[t] for t in getattr(card, "tags", ()) if t in tag_names][:2]
+            for j, tag in enumerate(tags):
+                chip = pygame.Rect(rect.x + 16 + j * 84, rect.bottom - 34, 76, 22)
+                draw_panel(self.screen, chip, border=color, fill=T.BG_PANEL_ALT, alpha=220, radius=7, outline=2)
+                draw_text_center(self.screen, tag, chip, color=color, font=self.font_small, outline=1)
+        # 补给刷新按钮
         refresh = pygame.Rect(sw - 296, sh - 200, 256, 64)
         draw_button(self.screen, refresh, "刷新 0/1" if offer.refreshed else "刷新 1/1", font=self.font, active=not offer.refreshed, accent=T.ACCENT_2)
         draw_text_center(self.screen, "左右选择 · 确认获取 · 刷新键重抽", pygame.Rect(sw // 2 - 260, sh - 34, 520, 24), color=T.TEXT_DIM, font=self.font_small, outline=1)
@@ -3457,7 +4097,7 @@ class RGameApp:
         overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
         overlay.fill((*T.BG_WORLD_VEIL, 200))
         self.screen.blit(overlay, (0, 0))
-        # 元气骑士风升级横幅
+        # 升级横幅采用与抽卡面板一致的深空材质。
         title_rect = pygame.Rect(sw // 2 - 200, 50, 400, 80)
         draw_panel(self.screen, title_rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=230, radius=18, outline=4)
         draw_text_center(self.screen, "升级！", title_rect, color=T.XP_FILL, font=self.font_big, outline=3)
@@ -3478,7 +4118,7 @@ class RGameApp:
 
     def _render_super_warning(self) -> None:
         sw, sh = self.screen_w, self.screen_h
-        # 红边 + 顶部红色横幅（元气骑士风：粗黑描边）
+        # 首领警告用红紫边缘光与舰载警报面板。
         pygame.draw.rect(self.screen, COL_HUD_BORDER, self.world_rect, width=8)
         pygame.draw.rect(self.screen, T.DANGER, self.world_rect, width=4)
         # 顶部警告条
@@ -3490,7 +4130,7 @@ class RGameApp:
         if se is None and self.engine.super_director.warning_left > 0:
             sub_rect = pygame.Rect(self.world_rect.centerx - 220, self.world_rect.y + 180, 440, 56)
             draw_panel(self.screen, sub_rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=220, radius=12, outline=3)
-            draw_text_center(self.screen, "准备应对 5 种技能...", sub_rect, color=T.DANGER, font=self.font_mid, outline=2)
+            draw_text_center(self.screen, "识别预警 · 破坏核心 · 抓住破防窗口", sub_rect, color=T.ACCENT, font=self.font_mid, outline=2)
 
     def _render_stage_clear(self) -> None:
         sw, sh = self.screen_w, self.screen_h
@@ -3502,7 +4142,7 @@ class RGameApp:
         # 顶部金色横条（8px 高，提示关卡节点）
         gold_bar = pygame.Rect(0, 0, sw, layout["gold_bar_h"])
         pygame.draw.rect(self.screen, T.CARD_GOLD, gold_bar)
-        # 元气骑士风：金边大横幅
+        # 关卡结算使用琥珀色奖励强调。
         rect = pygame.Rect(sw // 2 - layout["panel_w"] // 2, sh // 2 - layout["panel_h"] // 2,
                             layout["panel_w"], layout["panel_h"])
         draw_panel(self.screen, rect, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=235, radius=20, outline=5)
@@ -3543,7 +4183,7 @@ class RGameApp:
             draw_text_center(self.screen, str(badge["unlocked_count"]),
                              pygame.Rect(badge["center"][0] - 16, badge["center"][1] - 16, 32, 32),
                              size=14, color=T.TEXT_PRIMARY, font=self.font_small, outline=1)
-        # 元气骑士风：金色 + 黑色描边
+        # 结算标题使用琥珀色奖励强调。
         pygame.draw.rect(self.screen, COL_HUD_BORDER, rect, border_radius=12)
         pygame.draw.rect(self.screen, T.CARD_GOLD, rect.inflate(-4, -4), border_radius=10)
         # 高光
@@ -3821,7 +4461,7 @@ class RGameApp:
     def _render_history_preview(self) -> None:
         runs = list(getattr(self.engine.profile, "recent_runs_summary", []) or [])
         sw, sh = self.screen_w, self.screen_h
-        panel = pygame.Rect(sw - 360, 340, 320, 232)
+        panel = pygame.Rect(sw - 360, max(250, sh - 280), 320, 232)
         draw_panel(self.screen, panel, border=COL_HUD_BORDER, fill=T.BG_PANEL, alpha=205, radius=14, outline=3)
         draw_text(self.screen, "游戏日志", (panel.x + 18, panel.y + 14), size=20, color=T.ACCENT, font=self.font, outline=2)
         draw_text(self.screen, "按 L 或选择历史记录查看", (panel.x + 18, panel.y + 42), size=14, color=T.TEXT_DIM, font=self.font_small, outline=1)
@@ -3874,6 +4514,8 @@ class RGameApp:
             v = eff.get("value", 0)
             mapping = {
                 "dmg_pct": f"伤害 +{int(v*100)}%",
+                "crit_chance_bonus": f"暴击率 +{int(v*100)}%",
+                "crit_multiplier_bonus": f"暴击倍率 +{v:.2f}",
                 "aspd_pct": f"攻速 +{int(v*100)}%",
                 "range_pct": f"射程 +{int(v*100)}%",
                 "arc_deg": f"弧度 +{int(v)}°",

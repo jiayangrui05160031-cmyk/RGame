@@ -22,8 +22,8 @@ __version__ = "0.1.0"
 APP_NAME = "rgame"
 
 GAME_VERSION = "0.1.0"
-CONFIG_VERSION = "0.1.0"
-FORMULA_VERSION = "0.1.0"
+CONFIG_VERSION = "0.5.0"
+FORMULA_VERSION = "0.2.0"
 
 __all__ = [
     "__version__",
