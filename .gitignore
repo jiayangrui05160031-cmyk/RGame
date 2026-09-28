@@ -39,6 +39,7 @@ ehthumbs.db
 Desktop.ini
 
 # Game specific
+rgame_profile*.json
 *.log
 *.bak
 *.tmp

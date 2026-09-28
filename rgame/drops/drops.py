@@ -38,6 +38,7 @@ class PickupKind:
     SHIELD_RESTORE = "shield_restore"
     ARMOR = "armor"
     COIN = "coin"
+    SKILL_CHARGE = "skill_charge"
 
 
 @dataclass
@@ -48,6 +49,7 @@ class Pickup:
     kind: str
     amount: float = 0.0
     buff: Optional[str] = None
+    buff_duration: float = 0.0
     spawn_time: float = 0.0
     lifetime: float = PICKUP_LIFETIME
     position: tuple[float, float] = (0, 0)
@@ -114,15 +116,16 @@ class DropSystem:
         run_time: float,
     ) -> tuple[str, dict] | None:
         """从掉落表中抽取一项；遵循低生命补偿。"""
-        entries = list(drop_table["entries"])
-        # 低生命补偿：炸弹权重减半，治疗权重提高
-        if low_hp:
-            for ent in entries:
-                if ent["kind"] == "hazard_bomb":
-                    ent["weight"] *= 0.5
-                if ent["kind"] == "heal":
-                    ent["weight"] *= 1.5
-        weights = [max(0.0, float(e.get("weight", 1))) for e in entries]
+        entries = drop_table["entries"]
+        # 只调整本次抽样权重；浅拷贝条目会把低血量补偿永久写回配置。
+        weights = []
+        for entry in entries:
+            weight = max(0.0, float(entry.get("weight", 1)))
+            if low_hp and entry["kind"] == "hazard_bomb":
+                weight *= 0.5
+            elif low_hp and entry["kind"] == "heal":
+                weight *= 1.5
+            weights.append(weight)
         total = sum(weights)
         if total <= 0:
             idx = rng.range(len(entries))
@@ -222,12 +225,13 @@ class DropSystem:
                 timestamp=now,
             ))
             outcome.append(b.entity_id)
-        elif kind in ("xp_small", "xp_large", "heal", "shield_restore", "armor", "temp_buff", "coin"):
+        elif kind in ("xp_small", "xp_large", "heal", "shield_restore", "armor", "temp_buff", "coin", PickupKind.SKILL_CHARGE):
             p = Pickup(
                 entity_id=f"drop_{len(self.pickups)}_{int(now * 1000)}",
                 kind=kind,
                 amount=float(entry.get("amount", entry.get("pct_of_maxhp", 0) or 1)),
                 buff=entry.get("buff"),
+                buff_duration=float(entry.get("duration", 0.0)),
                 spawn_time=now,
                 position=position,
                 icon=entry.get("icon", "drop"),
@@ -320,11 +324,12 @@ def spawn_drops_on_enemy_defeated(
     player_current_hp,
     player_max_hp,
     player_alive: bool,
+    table_id: str | None = None,
 ) -> list[str]:
     """在敌人死亡位置调度一次掉落。"""
     if not player_alive:
         return []
-    table = drop_tables.get(enemy.drop_table_id, drop_tables.get("std_drops"))
+    table = drop_tables.get(table_id or enemy.drop_table_id, drop_tables.get("std_drops"))
     if table is None:
         return []
     return drop_system.spawn_drops(

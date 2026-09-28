@@ -67,12 +67,22 @@ class Enemy:
     spread_arc_deg: float = 0.0
     spread_projectile_count: int = 1
     ideal_distance: float = 0.0
+    strafe_direction: int = 1
+    phase_step_cooldown_left: float = 0.0
+    phase_flash_left: float = 0.0
+    support_cooldown_left: float = 0.0
+    support_pulse_left: float = 0.0
+    support_target_ids: tuple[str, ...] = field(default_factory=tuple)
+    support_amount_pct: float = 0.12
+    support_range: float = 250.0
+    support_cooldown: float = 5.0
     # 炸弹投放参数
     drops_bomb: bool = False
     bomb_spawn_interval: float = 2.5
     bomb_spawn_cooldown: float = 0.0
     spawn_time: float = 0.0
     last_attack_time: float = 0.0
+    attack_target_position: Optional[tuple[float, float]] = None
     pending_defeat: bool = False
     defeat_event_id: Optional[str] = None
     current_target_id: Optional[str] = None
@@ -169,6 +179,12 @@ def spawn_enemy(
         spread_arc_deg=float(config.get("spread_arc_deg", 0.0)),
         spread_projectile_count=int(config.get("spread_projectile_count", 1)),
         ideal_distance=float(config.get("ideal_distance", 0.0)),
+        strafe_direction=1 if rng.random() < 0.5 else -1,
+        phase_step_cooldown_left=float(rng.uniform(1.2, 2.5)) if "phase" in config.get("tags", ()) else 0.0,
+        support_cooldown_left=float(rng.uniform(0.8, 1.8)) if "support" in config.get("tags", ()) else 0.0,
+        support_amount_pct=float(config.get("support_amount_pct", 0.12)),
+        support_range=float(config.get("support_range", 250.0)),
+        support_cooldown=float(config.get("support_cooldown", 5.0)),
         drops_bomb=bool(config.get("drops_bomb", False)),
         bomb_spawn_interval=float(config.get("bomb_spawn_interval", 2.5)),
         bomb_spawn_cooldown=0.0,
@@ -209,18 +225,41 @@ def step_enemy(
     dist = math.hypot(dx, dy)
     facing_target = (math.degrees(math.atan2(dy, dx)) + 360.0) % 360.0
     diff = ((facing_target - e.facing + 540.0) % 360.0) - 180.0
-    e.facing = (e.facing + max(-120, min(120, diff * dt * 4)) + 360.0) % 360.0
+    if not (e.state in (EnemyState.WINDUP, EnemyState.ATTACKING) and e.attack_target_position is not None):
+        e.facing = (e.facing + max(-120, min(120, diff * dt * 4)) + 360.0) % 360.0
 
     if e.attack_cooldown_left > 0:
         e.attack_cooldown_left = max(0.0, e.attack_cooldown_left - dt)
     if e.bomb_spawn_cooldown > 0:
         e.bomb_spawn_cooldown = max(0.0, e.bomb_spawn_cooldown - dt)
+    if e.phase_step_cooldown_left > 0:
+        e.phase_step_cooldown_left = max(0.0, e.phase_step_cooldown_left - dt)
+    if e.phase_flash_left > 0:
+        e.phase_flash_left = max(0.0, e.phase_flash_left - dt)
+    if e.support_pulse_left > 0:
+        e.support_pulse_left = max(0.0, e.support_pulse_left - dt)
 
     # 以数据能力判断远程兵，不再把可发射兵种写死在两个 archetype 名称中。
     keeps_distance = e.projectile_speed > 0 or e.drops_bomb or "ranged" in e.tags
     shoots_projectiles = e.projectile_speed > 0 and e.projectile_lifetime > 0
 
     if e.state == EnemyState.SEEKING:
+        # 相位潜猎者偶尔从玩家侧前方切入，保留安全距离避免瞬移到碰撞体内。
+        if "phase" in e.tags and e.phase_step_cooldown_left <= 0 and 180 <= dist <= 360:
+            player_to_enemy = math.atan2(-dy, -dx)
+            side = 0.88 * e.strafe_direction
+            blink_radius = max(145.0, min(260.0, dist - 68.0))
+            blink_angle = player_to_enemy + side
+            e.position = (
+                player_pos[0] + math.cos(blink_angle) * blink_radius,
+                player_pos[1] + math.sin(blink_angle) * blink_radius,
+            )
+            e.phase_step_cooldown_left = 5.2
+            e.phase_flash_left = 0.5
+            e.strafe_direction *= -1
+            dx = player_pos[0] - e.position[0]
+            dy = player_pos[1] - e.position[1]
+            dist = math.hypot(dx, dy)
         if e.drops_bomb and bombs_active_count < 3 and e.bomb_spawn_cooldown <= 0 and dist < 380 and dist > 90:
             e.bomb_spawn_cooldown = e.bomb_spawn_interval
             # 投放到玩家与敌人之间（偏移让玩家有机会反应）
@@ -247,9 +286,22 @@ def step_enemy(
                     e.position[0] - (dx / norm) * e.move_speed * 0.6 * dt,
                     e.position[1] - (dy / norm) * e.move_speed * 0.6 * dt,
                 )
+            if "strafing" in e.tags and dist > 0 and dist < e.ideal_distance * 1.35:
+                norm = dist
+                strafe_speed = e.move_speed * 0.72 * e.strafe_direction
+                e.position = (
+                    e.position[0] - (dy / norm) * strafe_speed * dt,
+                    e.position[1] + (dx / norm) * strafe_speed * dt,
+                )
             if dist <= e.attack_range and e.attack_cooldown_left <= 0 and player_alive:
                 e.state = EnemyState.WINDUP
                 e.state_left = e.windup_time
+                if shoots_projectiles:
+                    e.attack_target_position = (player_pos[0], player_pos[1])
+                    e.facing = (math.degrees(math.atan2(
+                        e.attack_target_position[1] - e.position[1],
+                        e.attack_target_position[0] - e.position[0],
+                    )) + 360.0) % 360.0
         else:
             # 近战：直线追
             if dist > 0:
@@ -273,6 +325,7 @@ def step_enemy(
                 e.state = EnemyState.RECOVERY
                 e.state_left = 0.4
                 e.attack_cooldown_left = e.attack_interval
+                e.attack_target_position = None
             else:
                 e.state = EnemyState.ATTACKING
                 e.state_left = 0.06
@@ -285,18 +338,22 @@ def step_enemy(
             dist = math.hypot(dx, dy)
             if dist <= e.attack_range:
                 if shoots_projectiles:
-                    # 远程发射
-                    target_pos = (player_pos[0], player_pos[1])
+                    # 使用前摇开始时锁定的位置，预警线因此是真实可闪避的。
+                    target_pos = e.attack_target_position or (player_pos[0], player_pos[1])
                     projectile_emit(e, target_pos, kind="projectile")
                     e.last_attack_time = now
+                    if "strafing" in e.tags:
+                        e.strafe_direction *= -1
                 else:
                     # 近战接触：先看无敌 / 接触冷却
                     e.last_attack_time = now
             e.state = EnemyState.RECOVERY
             e.state_left = e.cooldown_time
             e.attack_cooldown_left = e.attack_interval
+            e.attack_target_position = None
     elif e.state == EnemyState.RECOVERY:
         e.state_left -= dt
         if e.state_left <= 0:
             e.state = EnemyState.SEEKING
             e.state_left = 0
+            e.attack_target_position = None

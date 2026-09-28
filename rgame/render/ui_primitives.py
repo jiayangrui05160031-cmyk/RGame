@@ -145,13 +145,30 @@ def draw_panel(
     panel = pygame.Surface((max(1, rect.w), max(1, rect.h)), pygame.SRCALPHA)
     border_rgb = normalize_color(border)
     fill_rgb = normalize_color(fill)
+    width, height = panel.get_size()
+    cut = max(4, min(int(radius), width // 7, height // 4))
+
+    def corners(inset: int, bevel: int):
+        left, top = inset, inset
+        right, bottom = width - inset, height - inset
+        bevel = max(2, min(bevel, max(2, (right - left) // 4), max(2, (bottom - top) // 3)))
+        return [
+            (left + bevel, top), (right - bevel, top), (right, top + bevel),
+            (right, bottom - bevel), (right - bevel, bottom), (left + bevel, bottom),
+            (left, bottom - bevel), (left, top + bevel),
+        ]
+
+    pygame.draw.polygon(panel, border_rgb, corners(0, cut))
     if outline > 0:
-        pygame.draw.rect(panel, border_rgb, panel.get_rect(), border_radius=radius)
-        inner = pygame.Rect(outline, outline, max(1, rect.w - 2 * outline), max(1, rect.h - 2 * outline))
-        pygame.draw.rect(panel, (*fill_rgb[:3], alpha), inner, border_radius=max(2, radius - outline))
+        pygame.draw.polygon(panel, (*fill_rgb[:3], alpha), corners(outline, max(2, cut - outline)))
     else:
-        pygame.draw.rect(panel, (*fill_rgb[:3], alpha), panel.get_rect(), border_radius=radius)
-    pygame.draw.line(panel, (*T.ACCENT, 56), (outline + 6, outline + 2), (rect.w - outline - 6, outline + 2), 1)
+        pygame.draw.polygon(panel, (*fill_rgb[:3], alpha), corners(0, cut))
+    pygame.draw.line(panel, (*T.ACCENT, min(112, alpha // 2)),
+                     (cut + outline + 5, outline + 1), (width - cut - outline - 5, outline + 1), 1)
+    # 两侧短刻线让面板读起来像舰载仪表，而不是通用圆角卡片。
+    mark = min(12, max(4, width // 18))
+    pygame.draw.line(panel, (*T.ACCENT_2, min(145, alpha)), (2, cut + 4), (2, cut + 4 + mark), 2)
+    pygame.draw.line(panel, (*T.ACCENT_3, min(145, alpha)), (width - 3, height - cut - 4), (width - 3, height - cut - 4 - mark), 2)
     surf.blit(panel, rect.topleft)
 
 
@@ -166,14 +183,18 @@ def draw_button(
     accent_fill=None,
 ):
     accent_rgb = normalize_color(accent_fill if accent_fill is not None else accent)
-    pygame.draw.rect(surf, normalize_color(T.BLACK_OUTLINE), rect, border_radius=12)
-    inner = rect.inflate(-4, -4)
     fill = accent_rgb if active else normalize_color(T.BG_PANEL_ALT)
-    pygame.draw.rect(surf, fill, inner, border_radius=10)
+    draw_panel(
+        surf, rect,
+        border=accent_rgb if active else T.ACCENT,
+        fill=fill,
+        alpha=248 if active else 232,
+        radius=12,
+        outline=3,
+    )
+    inner = rect.inflate(-6, -6)
     if active:
-        highlight = pygame.Surface((max(1, inner.w - 10), max(1, inner.h // 2)), pygame.SRCALPHA)
-        highlight.fill((255, 255, 255, 26))
-        surf.blit(highlight, (inner.x + 5, inner.y + 4))
+        pygame.draw.line(surf, (255, 255, 255), (inner.x + 10, inner.y + 5), (inner.right - 10, inner.y + 5), 1)
     text_color = T.TEXT_DARK if active and sum(fill[:3]) > 470 else T.TEXT_PRIMARY
     draw_text_center(
         surf,

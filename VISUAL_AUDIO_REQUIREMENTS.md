@@ -1,42 +1,57 @@
-# 视觉 / UI / 音频需求清单（武器组合与局内变化版本）
+# 视觉 / UI / 音频需求清单（深空战术主题）
 
-日期：2026-07-14  
+更新日期：2026-09-23（原始资产清单 2026-07-14）
 用途：配合已落地的武器组合技、随机事件、首领阶段、敌人词缀、局内挑战和战斗反馈。
 
 ## 保存目录总表
 
 项目素材根目录：
 
-`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2`
+`C:\Users\jiaya\RGame\rgame\assets`
 
 请按下面目录保存。文件名尽量完全照清单写，后续接入代码会轻松很多。
 
 | 素材类型 | 保存目录 |
 |---|---|
-| 武器组合技图标 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\combos` |
-| 敌人词缀图标 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\affixes` |
-| 随机事件图标 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\events` |
-| 首领专属素材 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\boss` |
-| 首领 UI / 弱点 / 破防条 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\ui\boss` |
-| 宝箱和奖励素材 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\chests` |
-| 战斗反馈素材 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\effects` |
-| 可平铺背景 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\backgrounds` |
-| 场景装饰 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\props` |
-| UI 面板 / 横幅 / 图标 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\ui` |
-| 音效 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\audio\sfx` |
-| 背景音乐 | `D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\audio\music` |
+| 武器组合技图标 | `C:\Users\jiaya\RGame\rgame\assets\v2\icons\combos` |
+| 敌人词缀图标 | `C:\Users\jiaya\RGame\rgame\assets\v2\icons\affixes` |
+| 随机事件图标 | `C:\Users\jiaya\RGame\rgame\assets\v2\icons\events` |
+| 首领专属素材 | `C:\Users\jiaya\RGame\rgame\assets\v2\boss` |
+| 首领 UI / 弱点 / 破防条 | `C:\Users\jiaya\RGame\rgame\assets\v2\ui\boss` |
+| 宝箱和奖励素材 | `C:\Users\jiaya\RGame\rgame\assets\v2\chests` |
+| 战斗反馈素材 | `C:\Users\jiaya\RGame\rgame\assets\v2\effects` |
+| 可平铺背景 | `C:\Users\jiaya\RGame\rgame\assets\v2\backgrounds` |
+| 场景装饰 | `C:\Users\jiaya\RGame\rgame\assets\v2\props` |
+| UI 面板 / 横幅 / 图标 | `C:\Users\jiaya\RGame\rgame\assets\v2\ui` |
+| 新版玩家模型 | `C:\Users\jiaya\RGame\rgame\assets\v3\player` |
+| 新版敌人模型 | `C:\Users\jiaya\RGame\rgame\assets\v3\enemies` |
+| 新版首领模型 | `C:\Users\jiaya\RGame\rgame\assets\v3\boss` |
+| 新版拾取物 | `C:\Users\jiaya\RGame\rgame\assets\v3\pickups` |
+| 新版战斗反馈与弹体 | `C:\Users\jiaya\RGame\rgame\assets\v3\effects` |
+| 新版菜单插画、主角皮肤、武器、拾取物与战斗特效 | `C:\Users\jiaya\RGame\rgame\assets\v4` |
+| 音效 | `C:\Users\jiaya\RGame\rgame\assets\audio\sfx` |
+| 背景音乐 | `C:\Users\jiaya\RGame\rgame\assets\audio\music` |
 
 ## 统一素材要求
 
 - PNG 必须是真 RGBA 透明背景。
 - 禁止棋盘格背景、灰底、黑底、白底、渐变底板、文字、水印和杂色。
 - 主体完整居中，四周保留约 10% 透明边距。
-- 风格统一：科幻火星战斗、清晰黑/深色描边、高饱和发光点缀。
+- 风格统一：深空战术科幻、海军蓝面板、象牙白/蓝钢装甲、青色能量核心，紫色与琥珀色作少量强调；背景保持低对比，不遮挡战斗预警。
+- 旧版 v2 资源只作兼容与参考；新版角色、敌人和 Boss 资源写入 v3，不覆盖旧文件。
+- 新版基础敌人表按固定 3×3 顺序裁切；专精敌人表按 2×2 顺序裁切。两张表依次为追击环刃、翼刃突袭、重甲守卫、灯笼炮手、晶体狙击、三节点散射、布雷轰炸、矿脉寄生体、轨道炮台，以及虚空修复者、裂隙舞刃、相位潜猎者、棱镜炮兵。
+- 新版拾取物与战斗反馈表均按 2×2 顺序裁切：经验晶体、医疗胶囊、护盾电池、装甲核心；命中闪光、等离子爆裂、等离子弹体、能量斩击。
+- 卡牌框使用深空 HUD 程序化绘制；新增设计不要再混用旧铜色齿轮外框。
 - 图标需在 32x32、64x64、128x128 下仍可辨认。
+- v4 主菜单插画为完整 16:9 场景图，可使用不透明 RGB；角色/道具/武器/特效表仍须使用真 RGBA 透明通道。
+- v4 主角皮肤表按 2×2 顺序裁切：苍穹先锋、赤焰彗星、星海守望、蚀月潜行者；预设页必须显示预览并支持鼠标和 V 键切换。
+- v4 武器图标表按 3×3 顺序裁切：近战刃、精准步枪、散射枪、轨道哨机、光束格栅炮、奥术能量球、霜晶长枪、星坠弓、虚空双枪。
+- v4 拾取物表按 2×2 顺序裁切：经验晶体、医疗胶囊、护盾棱镜、装甲核心；v4 战斗特效表按 2×2 顺序裁切：晶体冲击、能量斩击、虚空裂变、星坠冲击。
+- v4 资产原始生成提示词与实现映射记录于 `rgame/assets/v4/ASSET_PROMPTS.md`。
 
 ## 1. 武器组合技图标
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\combos`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\icons\combos`
 
 尺寸：128x128，透明背景。
 
@@ -50,7 +65,7 @@
 
 ## 2. 敌人词缀图标
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\affixes`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\icons\affixes`
 
 尺寸：64x64，透明背景，不要文字。
 
@@ -66,7 +81,7 @@
 
 ## 3. 随机事件图标
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\icons\events`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\icons\events`
 
 尺寸：128x128，透明背景，颜色区分明显。
 
@@ -81,9 +96,9 @@
 
 ## 4. 首领专属素材
 
-动作帧保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\boss`
+动作帧保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\boss`
 
-首领 UI / 弱点 / 破防条保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\ui\boss`
+首领 UI / 弱点 / 破防条保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\ui\boss`
 
 建议每个首领至少 4 帧，256x256 或 384x384，透明背景。
 
@@ -99,7 +114,7 @@
 
 ## 5. 宝箱和奖励素材
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\chests`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\chests`
 
 尺寸：160x160，透明背景。
 
@@ -112,7 +127,7 @@
 
 ## 6. 战斗反馈素材
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\effects`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\effects`
 
 尺寸：128x128 或 256x256，透明背景。
 
@@ -133,9 +148,9 @@
 
 ## 7. 背景和场景素材
 
-背景保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\backgrounds`
+背景保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\backgrounds`
 
-场景装饰保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\props`
+场景装饰保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\props`
 
 可平铺背景：1024x1024。
 
@@ -151,7 +166,7 @@
 
 ## 8. UI 需求
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\v2\ui`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\v2\ui`
 
 - 武器组合技面板：显示 `已激活 / 未激活`、缺少武器、等级不足。
 - 武器槽：显示品质颜色、等级 `Lv 当前/上限`、突破状态。
@@ -163,7 +178,7 @@
 
 ## 9. 音效需求
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\audio\sfx`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\audio\sfx`
 
 格式建议：WAV 或 OGG，短音效 0.1–1.5 秒，循环音乐 OGG。
 
@@ -184,7 +199,7 @@
 
 ## 10. 背景音乐需求
 
-保存目录：`D:\obsidian\oos\游戏测试\1\成型文件\rgame\assets\audio\music`
+保存目录：`C:\Users\jiaya\RGame\rgame\assets\audio\music`
 
 - 普通关卡 BGM：火星战斗、节奏 110–130 BPM、循环 90–150 秒。
 - 随机事件 BGM Layer：可叠加紧张打击乐，事件结束淡出。

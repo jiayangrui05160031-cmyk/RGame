@@ -30,8 +30,8 @@ class ConfigBundle:
     stages: dict[str, dict] = field(default_factory=dict)
     achievements: dict[str, dict] = field(default_factory=dict)
     schema_version: str = "0.1.0"
-    config_version: str = "0.1.0"
-    formula_version: str = "0.1.0"
+    config_version: str = "0.5.0"
+    formula_version: str = "0.2.0"
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 

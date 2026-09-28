@@ -1,11 +1,9 @@
-"""rgame 视觉主题（元气骑士风）。
+"""rgame 视觉主题（深空战术风）。
 
 设计原则：
-- 粗黑描边（3–4px）：所有 HUD 面板、按钮、卡牌边框走 3-4px 黑色描边
-- 高饱和度色块：HP 红、护盾蓝、护甲金、XP 绿、炸弹橙、主角 cyan
-- 圆角胶囊：按钮/面板统一 radius=10
-- 文字描黑：所有白色/亮色文字画一层 1px 黑色描边，避免背景干扰
-- 角色贴图：所有主角/敌人/超级怪兽统一用 chars/ 下的 1024×1024 png，旋转 -90° 朝向
+- 深海军蓝玻璃面板、细青色描边与少量斜切角
+- 青蓝作为主交互色，紫色代表虚空，琥珀色表示奖励和危险
+- 角色材质统一为象牙白装甲、蓝钢结构与冷色发光核心
 
 颜色按"语义色"分组：HP / SHIELD / ARMOR / XP / HEAL / BUFF / BOMB / DANGER
 """
@@ -17,84 +15,84 @@ from typing import Tuple
 # 基础色板
 # =============================================================================
 # 画布 / 背景
-BG_DARK = (15, 22, 36)        # 主菜单背景
-BG_PANEL = (24, 32, 52)       # 面板填充
-BG_PANEL_ALT = (32, 42, 64)   # 嵌套面板
-BG_WORLD_VEIL = (10, 14, 26)  # 战斗场景半透遮罩
-BLACK_OUTLINE = (8, 10, 16)   # 描边黑（不是纯黑，避免对比过强）
+BG_DARK = (6, 12, 26)         # 深空底色
+BG_PANEL = (11, 22, 40)       # 深色玻璃面板
+BG_PANEL_ALT = (18, 36, 58)   # 嵌套面板
+BG_WORLD_VEIL = (3, 7, 18)    # 战斗场景半透遮罩
+BLACK_OUTLINE = (3, 7, 16)    # 海军蓝描边
 SHADOW = (0, 0, 0)
 
 # 文字
-TEXT_PRIMARY = (255, 255, 255)
-TEXT_DIM = (172, 184, 200)
-TEXT_ACCENT = (255, 230, 130)
-TEXT_DARK = (24, 28, 40)
-TEXT_OUTLINE = (12, 14, 22)
+TEXT_PRIMARY = (229, 241, 255)
+TEXT_DIM = (140, 163, 190)
+TEXT_ACCENT = (151, 231, 255)
+TEXT_DARK = (7, 17, 32)
+TEXT_OUTLINE = (3, 7, 16)
 
 # =============================================================================
 # 角色 / 敌人
 # =============================================================================
-PLAYER_PRIMARY = (90, 215, 255)     # 主角 cyan
-PLAYER_CORE = (220, 248, 255)
-PLAYER_TRIM = (38, 88, 140)
+PLAYER_PRIMARY = (55, 220, 255)     # 主角 cyan
+PLAYER_CORE = (232, 251, 255)
+PLAYER_TRIM = (28, 82, 138)
 
-ENEMY_COMMON = (235, 90, 110)        # 普怪红
-ENEMY_ELITE = (255, 195, 90)         # 精英金
-ENEMY_SUPER = (220, 90, 240)         # 超级紫红
-ENEMY_SPAWN_RING = (130, 220, 255)
+ENEMY_COMMON = (246, 94, 129)        # 普怪珊瑚红
+ENEMY_ELITE = (255, 190, 92)         # 精英琥珀金
+ENEMY_SUPER = (195, 110, 255)        # 超级虚空紫
+ENEMY_SPAWN_RING = (81, 227, 255)
 
 # =============================================================================
 # 武器 / 投射物
 # =============================================================================
-PROJ_PLAYER = (140, 235, 255)
-PROJ_ENEMY = (255, 175, 80)
-PROJ_BOMB = (255, 110, 80)
-PROJ_LASER = (200, 240, 255)
+PROJ_PLAYER = (85, 232, 255)
+PROJ_ENEMY = (255, 151, 100)
+PROJ_BOMB = (255, 92, 128)
+PROJ_LASER = (206, 247, 255)
 
 # =============================================================================
 # 拾取
 # =============================================================================
-PICKUP_XP = (130, 230, 170)
-PICKUP_HEAL = (120, 235, 130)
-PICKUP_BUFF = (200, 220, 255)
-PICKUP_SHIELD = (140, 200, 255)
-PICKUP_BOMB = (255, 100, 90)
+PICKUP_XP = (116, 243, 202)
+PICKUP_HEAL = (135, 242, 176)
+PICKUP_BUFF = (180, 204, 255)
+PICKUP_SHIELD = (87, 204, 255)
+PICKUP_BOMB = (255, 104, 135)
 
 # =============================================================================
 # HUD 语义色（HP / SHIELD / ARMOR / XP）
 # =============================================================================
-HP_FILL = (228, 78, 96)
-HP_BACK = (64, 24, 32)
-HP_BORDER = (255, 235, 235)
+HP_FILL = (255, 79, 115)
+HP_BACK = (68, 24, 46)
+HP_BORDER = (255, 220, 235)
 
-SHIELD_FILL = (110, 200, 255)
-SHIELD_BORDER = (220, 240, 255)
+SHIELD_FILL = (61, 203, 255)
+SHIELD_BORDER = (193, 241, 255)
 
-ARMOR_FILL = (210, 190, 120)
-ARMOR_BORDER = (255, 245, 220)
+ARMOR_FILL = (255, 184, 88)
+ARMOR_BORDER = (255, 232, 183)
 
-XP_FILL = (130, 230, 170)
-XP_BACK = (32, 56, 42)
+XP_FILL = (95, 227, 186)
+XP_BACK = (16, 57, 63)
 
 # 警告 / 危险
-DANGER = (255, 70, 80)
-DANGER_BG = (200, 50, 60)
-WARN = (255, 170, 60)
+DANGER = (255, 73, 117)
+DANGER_BG = (102, 25, 63)
+WARN = (255, 178, 83)
 
 # 卡牌稀有度
-CARD_BRONZE = (205, 142, 82)
-CARD_BRONZE_DARK = (105, 62, 35)
-CARD_SILVER = (210, 220, 232)
-CARD_SILVER_DARK = (90, 110, 130)
-CARD_GOLD = (250, 210, 110)
-CARD_GOLD_DARK = (160, 110, 40)
-CARD_COLOR = (240, 130, 250)
-CARD_COLOR_DARK = (140, 50, 160)
+CARD_BRONZE = (205, 145, 105)
+CARD_BRONZE_DARK = (92, 53, 45)
+CARD_SILVER = (151, 207, 240)
+CARD_SILVER_DARK = (43, 76, 112)
+CARD_GOLD = (255, 201, 103)
+CARD_GOLD_DARK = (117, 77, 38)
+CARD_COLOR = (216, 125, 255)
+CARD_COLOR_DARK = (81, 43, 137)
 
 # UI 强调
-ACCENT = (90, 215, 255)
-ACCENT_2 = (255, 130, 210)
-ACCENT_3 = (255, 200, 100)
+ACCENT = (57, 221, 255)
+ACCENT_2 = (197, 132, 255)
+ACCENT_3 = (255, 190, 92)
 
 # =============================================================================
 # 敌人 config_id -> 资源路径（单一事实来源）
@@ -110,6 +108,7 @@ ENEMY_SPRITE_PATHS = {
     "mine_leech": "v2/enemies/mine_leech_sheet.png",
     "rail_turret": "v2/enemies/rail_turret_sheet.png",
 }
+ENEMY_ROSTER_SHEET_PATH = "v3/enemies/enemy_roster_sheet.png"
 
 PLAYER_SPRITE_PATH = "chars/player_hero_transparent.png"
 SUPER_BOSS_SPRITE_PATH = "chars/super_boss.png"

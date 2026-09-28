@@ -1,4 +1,4 @@
-"""超级怪兽系统：由引擎按分数门槛排队，1 秒警告，5 种非指向技能。"""
+"""超级怪兽系统：由引擎按分数门槛排队，1 秒警告与多形态非指向技能。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from .enemies import Enemy, spawn_enemy
+from .enemies import Enemy, EnemyState, spawn_enemy
 from .spawn_director import Sector
 from ..core.event_bus import Event, EventBus
 from ..core.run_context import RunContext
@@ -23,6 +23,8 @@ class SuperSkill(str, Enum):
     GAP_RING = "gap_ring"          # 缺口环射
     LOCKED_DASH = "locked_dash"    # 锁向重冲
     EXPAND_RING = "expand_ring"    # 扩张冲击环
+    TRI_LASER = "tri_laser"        # 锁定方向的三线棱镜炮
+    VOID_TIDAL = "void_tidal"      # 旋转安全缺口的潮汐弹幕
 
 
 SUPER_SKILLS_BASE = {
@@ -31,6 +33,8 @@ SUPER_SKILLS_BASE = {
     SuperSkill.GAP_RING: 1.0,
     SuperSkill.LOCKED_DASH: 0.8,
     SuperSkill.EXPAND_RING: 1.2,
+    SuperSkill.TRI_LASER: 1.18,
+    SuperSkill.VOID_TIDAL: 1.0,
 }
 
 SUPER_SKILL_MIN_WINDUP = 0.6  # 0.6s 下限
@@ -63,6 +67,7 @@ class SuperEnemy:
     skill_fired: bool = False
     skill_wave_timer: float = 0.0
     skill_wave_index: int = 0
+    skill_aim_angle: float = 0.0
     enraged: bool = False
     phase: int = 1
     break_gauge: float = 0.0
@@ -166,6 +171,10 @@ class SuperEnemyDirector:
         e.move_speed = max(115.0, e.move_speed * 0.9)
         e.drops_bomb = False
         e.is_elite = False
+        # The combat, scoring and weakpoint paths inspect the Enemy instance.
+        e.is_super = True
+        e.state = EnemyState.SEEKING
+        e.state_left = 0.0
         # 初始化技能池
         # 首只就开放完整技能池，避免连续几场只看到同一种开场弹幕。
         chosen = list(SuperSkill)
@@ -190,7 +199,7 @@ class SuperEnemyDirector:
 
     # ---- 技能选择 -------------------------------------------------------
 
-    def choose_next_skill(self, super_e: SuperEnemy) -> SuperSkill:
+    def choose_next_skill(self, super_e: SuperEnemy, rng=None) -> SuperSkill:
         """根据《超级怪兽系统》§6 规则：
 
         - 第 1 只随机获 2 个技能；
@@ -216,8 +225,12 @@ class SuperEnemyDirector:
         pool = [s for s in super_e.skill_pool if not (len(hist) == 2 and hist[0] == hist[1] == s)]
         if not pool:
             pool = super_e.skill_pool
-        # 不可用 windup < 0.6s 的 → 当前所有 5 个技能都满足
-        return pool[0] if len(pool) == 1 else pool[int.from_bytes(__import__("os").urandom(2), "big") % len(pool)]  # 由调用方传 rng 替换
+        # 使用本局命名随机流，保证回放种子能复现 Boss 招式序列。
+        if len(pool) == 1:
+            return pool[0]
+        if rng is not None:
+            return rng.choices(pool, k=1)[0]
+        return random.choice(pool)
 
     def on_skill_used(self, super_e: SuperEnemy, skill: SuperSkill) -> None:
         super_e.skill_used_history.append(skill)

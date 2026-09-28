@@ -56,6 +56,7 @@ class WeaponState:
     arc_deg_bonus: float = 0.0
     tol_deg_bonus: float = 0.0
     attack_speed_multiplier: float = 1.0
+    temporary_attack_speed_multiplier: float = 1.0
     damage_multiplier: float = 1.0
     base_damage_boost: float = 0.0  # 来自合成卡 / 升级 / 武器共鸣
     crit_chance_bonus: float = 0.0
@@ -65,7 +66,7 @@ class WeaponState:
 
     def interval(self) -> float:
         base = float(self.config.get("attack_interval", 0.5))
-        spd = max(0.05, self.attack_speed_multiplier * (1.0 + self.aspd_pct_bonus))
+        spd = max(0.05, self.attack_speed_multiplier * self.temporary_attack_speed_multiplier * (1.0 + self.aspd_pct_bonus))
         iv = base / spd
         return max(MIN_ATTACK_INTERVAL, iv)
 
